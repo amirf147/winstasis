@@ -18,7 +18,21 @@ namespace WinStasis
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         // =====================================================================
-        // 2. WIN32 API IMPORTS (P/Invoke)
+        // 2. UNFIXED COMPILER WARNINGS (Intentional Skips)
+        // =====================================================================
+        // WARNING: SYSLIB1054
+        // WHY IT SUGGESTED IT: C# 11 introduced [LibraryImport], a modern way to generate 
+        // memory translation code at compile-time rather than runtime (which [DllImport] does). 
+        // It is slightly faster and safer.
+        // WHY WE SKIPPED IT: To use [LibraryImport], we would have to make our class 'partial'
+        // and let C# inject hidden generated code behind the scenes. For a learning spike 
+        // focused on understanding the Win32 API, [DllImport] is much easier to read and 
+        // perfectly acceptable for the performance needs of this tool.
+        // THE SUPPRESSION: We use #pragma to tell the compiler to stop nagging us about it.
+#pragma warning disable SYSLIB1054 
+
+        // =====================================================================
+        // 3. WIN32 API IMPORTS (P/Invoke)
         // =====================================================================
         // We use [DllImport] to tell the C# compiler: "Do not look for the body of this 
         // function in this project. Look inside the operating system's user32.dll file."
@@ -33,9 +47,14 @@ namespace WinStasis
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsWindowVisible(IntPtr hWnd);
 
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        // OLD: [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         // CharSet.Auto tells the marshaller to automatically decide between ANSI or Unicode 
         // depending on the version of Windows. SetLastError allows us to catch Win32 error codes.
+        // WARNING: CA2101 (Specify marshaling for P/Invoke string arguments)
+        // EXPLANATION: CharSet.Auto lets the OS decide whether to use ANSI (older) or Unicode. 
+        // If it defaults to ANSI, malicious text can exploit memory limits.
+        // NEW FIX: We explicitly lock it to CharSet.Unicode for modern safety.
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -53,9 +72,11 @@ namespace WinStasis
         // pass it to Windows, and Windows will modify the existing object in memory.
         public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
+        // We turn the SYSLIB1054 warning back on for the rest of the file so we don't accidentally hide other issues.
+#pragma warning restore SYSLIB1054
 
         // =====================================================================
-        // 3. UNMANAGED DATA STRUCTURES (Structs)
+        // 4. UNMANAGED DATA STRUCTURES (Structs)
         // =====================================================================
         // C# normally optimizes memory by moving variables around. We CANNOT allow that here.
         // [StructLayout(LayoutKind.Sequential)] forces C# to store these variables in the exact 
@@ -90,10 +111,15 @@ namespace WinStasis
         }
 
         // =====================================================================
-        // 4. MAIN APPLICATION LOGIC
+        // 5. MAIN APPLICATION LOGIC
         // =====================================================================
 
-        static void Main(string[] args)
+        // OLD: static void Main(string[] args)
+        // WARNING: IDE0060 (Remove unused parameter 'args')
+        // EXPLANATION: We aren't passing command line arguments like `./winstasis --save` yet.
+        // C# warns us that memory is allocated for 'args', but we ignore it.
+        // NEW FIX: We simply remove the parameter.
+        static void Main()
         {
             Console.WriteLine("Scanning for visible windows...\n");
             Console.WriteLine(new string('-', 80));
@@ -117,19 +143,34 @@ namespace WinStasis
                 return true;
 
             // 2. EXTRACT TITLE
+            // OLD: StringBuilder titleBuilder = new StringBuilder(256);
             // C++ doesn't return strings easily. We have to create a pre-allocated memory buffer 
             // (StringBuilder) of 256 characters, and ask Windows to write text into that specific memory space.
-            StringBuilder titleBuilder = new StringBuilder(256);
-            GetWindowText(hWnd, titleBuilder, 256);
+            // WARNING: IDE0090 ('new' expression can be simplified)
+            // EXPLANATION: Since we declared `StringBuilder` on the left side of the equals sign, 
+            // typing it again on the right is redundant. Modern C# uses "Target-typed new expressions".
+            // NEW FIX:
+            StringBuilder titleBuilder = new(256);
+
+            // OLD: GetWindowText(hWnd, titleBuilder, 256);
+            // WARNING: CA1806 (Do not ignore method results)
+            // EXPLANATION: GetWindowText returns an integer (the length of the string). We didn't capture it.
+            // C# warns that ignoring error codes is dangerous in production.
+            // NEW FIX: The discard variable `_ = ` tells the compiler: "Yes, I know it returns a value, I am intentionally throwing it away."
+            _ = GetWindowText(hWnd, titleBuilder, 256);
             string windowTitle = titleBuilder.ToString().Trim();
 
             // Ignore system overlays that have no title.
             if (string.IsNullOrEmpty(windowTitle))
-                return true; 
+                return true;
 
             // 3. EXTRACT PROCESS NAME
             // Windows tracks windows by an internal Process ID (PID), not by the ".exe" name.
-            GetWindowThreadProcessId(hWnd, out uint processId);
+            // OLD: GetWindowThreadProcessId(hWnd, out uint processId);
+            // WARNING: CA1806 (Do not ignore method results)
+            // NEW FIX: Added the discard variable again.
+            _ = GetWindowThreadProcessId(hWnd, out uint processId);
+
             string processName = "Unknown";
             try
             {
@@ -152,12 +193,24 @@ namespace WinStasis
             int height = rect.Bottom - rect.Top;
 
             // 5. EXTRACT STATE
-            WINDOWPLACEMENT placement = new WINDOWPLACEMENT();
+            // OLD: 
+            // WINDOWPLACEMENT placement = new WINDOWPLACEMENT();
             // Win32 API quirk: Before passing a struct using 'ref', we MUST tell the OS exactly how many 
             // bytes the struct takes up in memory, so it knows how much data it is allowed to write.
-            placement.length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+            // placement.length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+
+            // WARNINGS: IDE0090 (Simplify new), IDE0017 (Simplify initialization), CA2263 (Use generic SizeOf)
+            // EXPLANATION: We can combine object creation and property setting into one clean block (IDE0017).
+            // We can drop the redundant type name (IDE0090). 
+            // We replace `typeof(x)` with the modern generic `<x>` method because it is faster (CA2263).
+            // NEW FIX:
+            WINDOWPLACEMENT placement = new()
+            {
+                length = Marshal.SizeOf<WINDOWPLACEMENT>()
+            };
+
             GetWindowPlacement(hWnd, ref placement);
-            
+
             // C# 8.0 Switch Expression to cleanly map OS integers to readable strings.
             string state = placement.showCmd switch
             {
@@ -175,7 +228,7 @@ namespace WinStasis
             Console.WriteLine();
 
             // Returning true tells EnumWindows: "I am done with this window, give me the next one."
-            return true; 
+            return true;
         }
     }
 }
