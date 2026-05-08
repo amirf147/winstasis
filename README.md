@@ -56,3 +56,8 @@ dotnet run -- restore coding
 # Restore a specific window by its Target ID
 dotnet run -- restore coding --target 5
 ```
+
+## 🛤️ Future Directions & Offshoots
+As development on the core "Mover" logic is currently paused for research, we are exploring stable offshoots that utilize the robust "Observer" engine we've built:
+
+*   **[winspy: Verbose Window Inspector](docs/offshoot_window_inspector_plan.md)**: A proposed read-only CLI tool that provides deep, structured metadata (JSON/CSV) about the Windows desktop layer without attempting fragile OS-level modifications.
