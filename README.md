@@ -9,19 +9,29 @@ This project serves a dual purpose:
 1. **Utility:** Creating a "set-it-and-forget-it" tool to eliminate "window drift" and manual repositioning after system restarts.
 2. **Pedagogy:** A deep-dive into C# and the Win32 API. This project is a stepping stone toward mastering Windows internals, with the long-term goal of developing advanced, low-level accessibility tools and high-performance window management solutions.
 
-## 🚀 Current Status: Phase 3 (The Mover) - **IN PROGRESS (BLOCKED)**
-Phase 3 is currently blocked by a security restriction in the Win32/COM layer. While window positioning is functional, workspace restoration is limited to the current process.
+## 🚀 Current Status: **PAUSED / RESEARCH PHASE**
+*winstasis* has achieved full 1:1 restoration for window positioning and geometry. However, automated cross-workspace movement is currently paused due to deep-seated OS security restrictions.
 
-### 🛑 Blocking Error: Access Denied (0x80070005)
-The official `IVirtualDesktopManager::MoveWindowToDesktop` API returns an Access Denied error when attempting to move windows owned by other processes (e.g., Chrome, VS Code, Spotify). This prevents full workspace restoration from a CLI context.
+### 🛑 The "Access Denied" Barrier
+During the development of Phase 3, we discovered that the official `IVirtualDesktopManager::MoveWindowToDesktop` API returns an **Access Denied (0x80070005)** error if a process attempts to move a window it does not explicitly own. This is a security design choice by Microsoft.
 
-**Proposed Resolution:** Transition to the undocumented `IVirtualDesktopManagerInternal` interface (see [ADR-0007](docs/adr/0007-undocumented-com-interface.md)).
+### 🔍 Research Findings
+We have documented a path forward, but it requires a significant architectural pivot:
 
-**Accomplishments:**
+1. **Undocumented COM Interfaces**: To move windows globally, we must use `IVirtualDesktopManagerInternal`. This interface is undocumented and changes its memory layout (`vtable`) with almost every major Windows update.
+2. **The Maintenance Trap**: Relying on undocumented APIs creates a "fragility debt." If the memory offsets shift, the application will crash instantly.
+3. **Third-Party Solutions**: Open-source libraries like [Slion/VirtualDesktop](https://github.com/Slion/VirtualDesktop) manage this volatility by dynamically mapping offsets based on Windows build numbers.
+
+For more technical details, see:
+- [Research: Virtual Desktop Libraries](docs/research_virtual_desktop_libraries.md)
+- [Research: Windhawk, C++, and Memory Fragility](docs/research_windhawk_and_cpp.md)
+
+### 🛠️ Core Accomplishments
 - **Hybrid Matching:** Reliable window resolution using HWND and Process/Title fallbacks.
 - **Boundary Clamping:** Safe restoration across changing monitor topologies (e.g., docking/undocking).
-- **Cross-Desktop Movement:** Initial COM integration (Official API).
-- **Contextual Overrides:** Intelligent state management (e.g., waking minimized windows when targeted specifically).
+- **JSON Orchestration:** Fully functional session capture and CLI routing.
+- **Contextual Overrides:** Intelligent state management (e.g., waking minimized windows).
+
 
 ## 🧠 Development Methodology
 This project is engineered using an **Agentic Workflow**. It leverages highly iterative development cycles, AI-assisted pair programming within the Anti-Gravity editor, and a "Grill-with-Docs" strategy to ensure the codebase always matches its architectural decisions (ADRs).
