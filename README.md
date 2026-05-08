@@ -9,19 +9,33 @@ This project serves a dual purpose:
 1. **Utility:** Creating a "set-it-and-forget-it" tool to eliminate "window drift" and manual repositioning after system restarts.
 2. **Pedagogy:** A deep-dive into C# and the Win32 API. This project is a stepping stone toward mastering Windows internals, with the long-term goal of developing advanced, low-level accessibility tools and high-performance window management solutions.
 
-## 🚀 Current Status: Phase 1 (The Observer Spike)
-Currently in the proof-of-concept phase. The application successfully hooks into the Win32 API (`User32.dll`) via P/Invoke to:
-- Enumerate all top-level windows.
-- Filter for visible, user-facing applications.
-- Extract precise coordinates, dimensions, and window states (Maximized/Minimized/Normal).
+## 🚀 Current Status: Phase 2 (The State Manager) - **CORE LOGIC COMPLETE**
+We have successfully implemented the state management layer, enabling persistent window snapshots with full Virtual Desktop awareness.
+
+**Accomplishments:**
+- **CLI Routing:** Full support for `save`, `list`, and `restore` (Stub) commands.
+- **Omniscient Workspace Tracking:** Real-time extraction of Virtual Desktop GUIDs using official `IVirtualDesktopManager` COM interfaces.
+- **JSON Persistence:** Snapshots are serialized into the `sessions/` directory with detailed geometric and process metadata.
+- **Safety & Sanitization:** Implemented profile overwrite protection and filename sanitization.
 
 ## 🧠 Development Methodology
-This project is engineered using an **Agentic Workflow**. It leverages highly iterative development cycles, AI-assisted pair programming within the Anti-Gravity editor, and strict, component-driven spikes to ensure high code quality and architectural clarity.
+This project is engineered using an **Agentic Workflow**. It leverages highly iterative development cycles, AI-assisted pair programming within the Anti-Gravity editor, and a "Grill-with-Docs" strategy to ensure the codebase always matches its architectural decisions (ADRs).
 
-## 🛠️ Usage (Phase 1)
+## 🛠️ Usage
 Ensure you have the .NET SDK installed.
 
+### Commands
 ```bash
-cd WinStasis
-dotnet run
+# Save current layout across ALL Virtual Desktops
+dotnet run -- save coding
+
+# Overwrite an existing profile
+dotnet run -- save coding --force
+
+# List all windows in a profile with Target IDs and Workspace GUIDs
+dotnet run -- list coding
+
+# Restore a layout (Phase 3: Development in progress)
+# dotnet run -- restore coding
 ```
+

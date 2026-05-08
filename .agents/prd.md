@@ -1,27 +1,22 @@
 # Product Requirements Document: Window Session Orchestrator
-**Document Status:** Draft - Iteration 1
+**Document Status:** Draft - Iteration 2 (Post-Pivot)
 
 ## 1. Executive Summary
-A lightweight, performant, native C# command-line utility designed to capture and restore the exact positions, sizes, and states of visible Windows applications.
+A lightweight, performant, native C# command-line utility designed to capture and restore the exact positions, sizes, and states of visible Windows applications. It acts as a "state manager" for your workspace, allowing both bulk and single-window targeting.
 
 ## 2. Core Objectives
 * **Performance:** Execute instantly with near-zero background resource consumption.
 * **Simplicity:** Utilize a portable JSON format for session storage (no databases).
-* **Targeted Control:** Capable of restoring entire multi-workspace environments or single, specific application windows (e.g., an accessibility HUD).
+* **Targeted Control:** Capable of restoring entire multi-workspace environments or single, specific application windows via generated Target IDs.
 
-## 3. Scope & Requirements (MVP)
-* **Trigger:** Command-line execution.
-* **Data Capture:**
-    * Process Name (e.g., `waterfox.exe`, `python.exe`)
-    * Window Title
-    * Coordinates (X, Y) and Dimensions (Width, Height)
-    * Window State (Normal, Maximized, Minimized)
-* **Storage:** Local JSON file (`session_snapshot.json`).
-* **Filtering:** Must strictly ignore invisible system background processes and ghost windows.
+## 3. High-Level Architecture Plan
+* **Phase 1: The Observer (Spike):** Extracting window data cleanly from the OS. *(Completed)*
+* **Phase 2: The State Manager (CLI & Storage):** Implementing `save <profile>` and `list <profile>` so users can see stable Target IDs for each window in a snapshot.
+* **Phase 3: The Mover (Restore):** Implementing full profile restores AND single-target restores (`winstasis restore coding --target 4`), including Boundary Clamping and Contextual State Overrides.
+* **Phase 4: Virtual Desktop Awareness:** Adding official COM interface hooks to filter windows by the currently active Virtual Desktop.
 
-## 4. High-Level Architecture Plan
-This project will be built in isolated, testable modules:
-* **Phase 1: The Observer (Spike Solution):** A script to read and print all currently visible windows and their coordinates.
-* **Phase 2: Data Serialization:** Defining the C# classes and writing the exact layout to a JSON file.
-* **Phase 3: The Mover:** Reading the JSON file and repositioning already-open windows to their saved coordinates.
-* **Phase 4: Refinement:** Adding Virtual Desktop awareness and hardware-agnostic positioning (percentage-based coordinates).
+## 4. Architectural Rules
+* **Active Workspace Scoping:** Only manage windows on the currently active Virtual Desktop.
+* **Opaque Window Rule:** We push boxes around the screen. We do not inspect tabs, internal app states, or attempt to launch closed `.exe` files.
+* **Boundary Clamping:** Windows restored outside active monitor bounds are shifted inside the nearest visible edge.
+* **Overwrite Protection:** Accidental profile overwrites are blocked unless a `--force` flag is supplied.

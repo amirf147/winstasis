@@ -1,65 +1,34 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.Runtime.InteropServices; // Required for all P/Invoke (Platform Invoke) and unmanaged code interaction
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
+using System.IO;
+using WinStasis.Models;
+using WinStasis.Storage;
 
 namespace WinStasis
 {
     class Program
     {
         // =====================================================================
-        // 1. THE DELEGATE & CALLBACK CONCEPT
+        // WIN32 API IMPORTS (P/Invoke) - Restored from Phase 1
         // =====================================================================
-        // Windows API functions often don't return arrays. Instead, they use "Callbacks".
-        // We define a Delegate here, which is essentially a type-safe function pointer.
-        // We will hand this delegate to Windows, and Windows will execute our function
-        // once for every single window it finds.
-        // IntPtr (Integer Pointer) is how C# represents a C++ pointer or a Windows "Handle" (HWND).
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        // =====================================================================
-        // 2. UNFIXED COMPILER WARNINGS (Intentional Skips)
-        // =====================================================================
-        // WARNING: SYSLIB1054
-        // WHY IT SUGGESTED IT: C# 11 introduced [LibraryImport], a modern way to generate 
-        // memory translation code at compile-time rather than runtime (which [DllImport] does). 
-        // It is slightly faster and safer.
-        // WHY WE SKIPPED IT: To use [LibraryImport], we would have to make our class 'partial'
-        // and let C# inject hidden generated code behind the scenes. For a learning spike 
-        // focused on understanding the Win32 API, [DllImport] is much easier to read and 
-        // perfectly acceptable for the performance needs of this tool.
-        // THE SUPPRESSION: We use #pragma to tell the compiler to stop nagging us about it.
-#pragma warning disable SYSLIB1054 
-
-        // =====================================================================
-        // 3. WIN32 API IMPORTS (P/Invoke)
-        // =====================================================================
-        // We use [DllImport] to tell the C# compiler: "Do not look for the body of this 
-        // function in this project. Look inside the operating system's user32.dll file."
-        // We use 'extern' to declare the signature without providing the implementation.
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        // MarshalAs translates the C++ 4-byte BOOL into the C# 1-byte bool so memory aligns correctly.
         public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsWindowVisible(IntPtr hWnd);
 
-        // OLD: [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        // CharSet.Auto tells the marshaller to automatically decide between ANSI or Unicode 
-        // depending on the version of Windows. SetLastError allows us to catch Win32 error codes.
-        // WARNING: CA2101 (Specify marshaling for P/Invoke string arguments)
-        // EXPLANATION: CharSet.Auto lets the OS decide whether to use ANSI (older) or Unicode. 
-        // If it defaults to ANSI, malicious text can exploit memory limits.
-        // NEW FIX: We explicitly lock it to CharSet.Unicode for modern safety.
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
         [DllImport("user32.dll", SetLastError = true)]
-        // 'out' keyword: We are telling C# that Windows will allocate the value for lpdwProcessId.
-        // We just provide the empty bucket.
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         [DllImport("user32.dll")]
@@ -68,20 +37,7 @@ namespace WinStasis
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        // 'ref' keyword: Unlike 'out', 'ref' means we must initialize the object in C# FIRST, 
-        // pass it to Windows, and Windows will modify the existing object in memory.
         public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
-
-        // We turn the SYSLIB1054 warning back on for the rest of the file so we don't accidentally hide other issues.
-#pragma warning restore SYSLIB1054
-
-        // =====================================================================
-        // 4. UNMANAGED DATA STRUCTURES (Structs)
-        // =====================================================================
-        // C# normally optimizes memory by moving variables around. We CANNOT allow that here.
-        // [StructLayout(LayoutKind.Sequential)] forces C# to store these variables in the exact 
-        // byte-for-byte physical order written below. If we don't do this, when Windows tries 
-        // to write C++ data into our C# struct, it will write to the wrong memory addresses.
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT
@@ -102,133 +58,202 @@ namespace WinStasis
         [StructLayout(LayoutKind.Sequential)]
         public struct WINDOWPLACEMENT
         {
-            public int length;     // The size of this struct in bytes (required by Win32 API)
-            public int flags;      // Internal state flags
-            public int showCmd;    // 1 = Normal, 2 = Minimized, 3 = Maximized
+            public int length;
+            public int flags;
+            public int showCmd;
             public POINT ptMinPosition;
             public POINT ptMaxPosition;
             public RECT rcNormalPosition;
         }
 
         // =====================================================================
-        // 5. MAIN APPLICATION LOGIC
+        // CLI ENTRY POINT
         // =====================================================================
-
-        // OLD: static void Main(string[] args)
-        // WARNING: IDE0060 (Remove unused parameter 'args')
-        // EXPLANATION: We aren't passing command line arguments like `./winstasis --save` yet.
-        // C# warns us that memory is allocated for 'args', but we ignore it.
-        // NEW FIX: We simply remove the parameter.
-        static void Main()
+        static void Main(string[] args)
         {
-            Console.WriteLine("Scanning for visible windows...\n");
-            Console.WriteLine(new string('-', 80));
+            if (args.Length == 0)
+            {
+                ShowHelp();
+                return;
+            }
 
-            // We call the external OS function and pass it our C# method (FilterAndPrintWindow).
-            // IntPtr.Zero is just a null pointer because we don't need to pass any extra parameters.
-            EnumWindows(FilterAndPrintWindow, IntPtr.Zero);
+            string command = args[0].ToLowerInvariant();
 
-            Console.WriteLine(new string('-', 80));
-            Console.WriteLine("Scan complete.");
+            switch (command)
+            {
+                case "save":
+                    HandleSaveCommand(args);
+                    break;
+                case "list":
+                    HandleListCommand(args);
+                    break;
+                case "restore":
+                    HandleRestoreCommand(args);
+                    break;
+                default:
+                    Console.WriteLine($"Unknown command: {command}");
+                    ShowHelp();
+                    break;
+            }
         }
 
-        // This is the Callback function. Windows will execute this once for every window.
-        // hWnd is the unique ID (Handle) for the current window being evaluated.
-        private static bool FilterAndPrintWindow(IntPtr hWnd, IntPtr lParam)
+        private static void ShowHelp()
         {
-            // 1. FILTER VISIBILITY
-            // The OS tracks hundreds of invisible windows used for background tasks.
-            // If it's not visible to the user, we return 'true' to tell EnumWindows to skip to the next one.
-            if (!IsWindowVisible(hWnd))
-                return true;
+            Console.WriteLine("🪟 winstasis - Window State Manager\n");
+            Console.WriteLine("Usage:");
+            Console.WriteLine("  winstasis save <profile> [--force]      Save the current window layout to a profile.");
+            Console.WriteLine("  winstasis list <profile>                List all windows saved in a profile with their Target IDs.");
+            Console.WriteLine("  winstasis restore <profile>             Restore all windows in a profile.");
+            Console.WriteLine("  winstasis restore <profile> --target X  Restore only the window with Target ID 'X'.");
+        }
 
-            // 2. EXTRACT TITLE
-            // OLD: StringBuilder titleBuilder = new StringBuilder(256);
-            // C++ doesn't return strings easily. We have to create a pre-allocated memory buffer 
-            // (StringBuilder) of 256 characters, and ask Windows to write text into that specific memory space.
-            // WARNING: IDE0090 ('new' expression can be simplified)
-            // EXPLANATION: Since we declared `StringBuilder` on the left side of the equals sign, 
-            // typing it again on the right is redundant. Modern C# uses "Target-typed new expressions".
-            // NEW FIX:
-            StringBuilder titleBuilder = new(256);
-
-            // OLD: GetWindowText(hWnd, titleBuilder, 256);
-            // WARNING: CA1806 (Do not ignore method results)
-            // EXPLANATION: GetWindowText returns an integer (the length of the string). We didn't capture it.
-            // C# warns that ignoring error codes is dangerous in production.
-            // NEW FIX: The discard variable `_ = ` tells the compiler: "Yes, I know it returns a value, I am intentionally throwing it away."
-            _ = GetWindowText(hWnd, titleBuilder, 256);
-            string windowTitle = titleBuilder.ToString().Trim();
-
-            // Ignore system overlays that have no title.
-            if (string.IsNullOrEmpty(windowTitle))
-                return true;
-
-            // 3. EXTRACT PROCESS NAME
-            // Windows tracks windows by an internal Process ID (PID), not by the ".exe" name.
-            // OLD: GetWindowThreadProcessId(hWnd, out uint processId);
-            // WARNING: CA1806 (Do not ignore method results)
-            // NEW FIX: Added the discard variable again.
-            _ = GetWindowThreadProcessId(hWnd, out uint processId);
-
-            string processName = "Unknown";
-            try
+        // =====================================================================
+        // COMMAND HANDLERS
+        // =====================================================================
+        private static void HandleSaveCommand(string[] args)
+        {
+            if (args.Length < 2)
             {
-                // We ask the .NET framework to look up the human-readable name associated with the PID.
-                Process proc = Process.GetProcessById((int)processId);
-                processName = proc.ProcessName;
-            }
-            catch (Exception)
-            {
-                // Some high-security OS processes will deny our request. We catch the error to prevent crashing.
+                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winstasis save coding')");
+                return;
             }
 
-            // Hardcoded exclusion of modern Windows 11 UI elements (Start menu, invisible taskbar wrappers).
-            if (processName == "TextInputHost" || processName == "ApplicationFrameHost")
+            string profileName = args[1];
+            bool force = args.Length > 2 && (args[2] == "--force" || args[2] == "-f");
+
+            ProfileManager.EnsureDirectoryExists();
+
+            if (!force && ProfileManager.ProfileExists(profileName))
+            {
+                Console.Write($"Profile '{profileName}' already exists. Overwrite? (y/n): ");
+                var key = Console.ReadKey().KeyChar;
+                Console.WriteLine();
+                if (key != 'y' && key != 'Y')
+                {
+                    Console.WriteLine("Save aborted.");
+                    return;
+                }
+            }
+
+            Console.WriteLine($"Scanning visible windows for profile: {profileName}...");
+
+            var capturedWindows = new List<WindowRecord>();
+            var desktopHelper = new VirtualDesktopHelper();
+            int currentTargetId = 1;
+
+            // Define the callback inline for easy access to captured variables
+            bool CaptureWindowCallback(IntPtr hWnd, IntPtr lParam)
+            {
+                if (!IsWindowVisible(hWnd)) return true;
+
+                StringBuilder titleBuilder = new(256);
+                _ = GetWindowText(hWnd, titleBuilder, 256);
+                string windowTitle = titleBuilder.ToString().Trim();
+
+                if (string.IsNullOrEmpty(windowTitle)) return true;
+
+                _ = GetWindowThreadProcessId(hWnd, out uint processId);
+                string processName = "Unknown";
+                try
+                {
+                    using Process proc = Process.GetProcessById((int)processId);
+                    processName = proc.ProcessName;
+                }
+                catch (Exception) { /* Ignore access denied processes */ }
+
+                if (processName == "TextInputHost" || processName == "ApplicationFrameHost") return true;
+
+                GetWindowRect(hWnd, out RECT rect);
+                
+                WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
+                GetWindowPlacement(hWnd, ref placement);
+
+                // Extract Omniscient Workspace GUID
+                Guid desktopId = desktopHelper.GetWindowDesktopId(hWnd);
+
+                capturedWindows.Add(new WindowRecord
+                {
+                    TargetId = currentTargetId++,
+                    Hwnd = hWnd.ToInt64(), // Convert to long for JSON
+                    ProcessName = processName,
+                    WindowTitle = windowTitle,
+                    X = rect.Left,
+                    Y = rect.Top,
+                    Width = rect.Right - rect.Left,
+                    Height = rect.Bottom - rect.Top,
+                    ShowCmd = placement.showCmd,
+                    DesktopId = desktopId
+                });
+
                 return true;
+            }
 
-            // 4. EXTRACT COORDINATES
-            GetWindowRect(hWnd, out RECT rect);
-            int width = rect.Right - rect.Left;
-            int height = rect.Bottom - rect.Top;
+            // Run the P/Invoke Scan
+            EnumWindows(CaptureWindowCallback, IntPtr.Zero);
 
-            // 5. EXTRACT STATE
-            // OLD: 
-            // WINDOWPLACEMENT placement = new WINDOWPLACEMENT();
-            // Win32 API quirk: Before passing a struct using 'ref', we MUST tell the OS exactly how many 
-            // bytes the struct takes up in memory, so it knows how much data it is allowed to write.
-            // placement.length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
-
-            // WARNINGS: IDE0090 (Simplify new), IDE0017 (Simplify initialization), CA2263 (Use generic SizeOf)
-            // EXPLANATION: We can combine object creation and property setting into one clean block (IDE0017).
-            // We can drop the redundant type name (IDE0090). 
-            // We replace `typeof(x)` with the modern generic `<x>` method because it is faster (CA2263).
-            // NEW FIX:
-            WINDOWPLACEMENT placement = new()
+            // Serialize and Save
+            var profile = new SessionProfile
             {
-                length = Marshal.SizeOf<WINDOWPLACEMENT>()
+                ProfileName = profileName,
+                CreatedAt = DateTime.Now,
+                Windows = capturedWindows.ToArray()
             };
 
-            GetWindowPlacement(hWnd, ref placement);
+            string json = JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ProfileManager.GetFilePath(profileName), json);
 
-            // C# 8.0 Switch Expression to cleanly map OS integers to readable strings.
-            string state = placement.showCmd switch
+            Console.WriteLine($"Successfully saved {capturedWindows.Count} windows to profile '{profileName}'.");
+        }
+
+        private static void HandleListCommand(string[] args)
+        {
+            if (args.Length < 2)
             {
-                1 => "Normal",
-                2 => "Minimized",
-                3 => "Maximized",
-                _ => "Unknown"
-            };
+                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winstasis list coding')");
+                return;
+            }
 
-            // 6. OUTPUT RESULTS
-            Console.WriteLine($"Process : {processName}.exe");
-            Console.WriteLine($"Title   : {windowTitle}");
-            Console.WriteLine($"Position: X: {rect.Left}, Y: {rect.Top} | Size: {width}x{height}");
-            Console.WriteLine($"State   : {state}");
-            Console.WriteLine();
+            string profileName = args[1];
+            if (!ProfileManager.ProfileExists(profileName))
+            {
+                Console.WriteLine($"Error: Profile '{profileName}' not found.");
+                return;
+            }
 
-            // Returning true tells EnumWindows: "I am done with this window, give me the next one."
-            return true;
+            string json = File.ReadAllText(ProfileManager.GetFilePath(profileName));
+            var profile = JsonSerializer.Deserialize<SessionProfile>(json);
+
+            if (profile == null || profile.Windows.Length == 0)
+            {
+                Console.WriteLine($"Profile '{profileName}' is empty.");
+                return;
+            }
+
+            Console.WriteLine($"Profile: {profile.ProfileName} (Saved: {profile.CreatedAt})");
+            Console.WriteLine(new string('-', 80));
+
+            foreach (var win in profile.Windows)
+            {
+                // Format the workspace GUID into a readable short string if it exists
+                string workspaceStr = win.DesktopId != Guid.Empty 
+                    ? $"[WS: {win.DesktopId.ToString().Substring(0, 8)}...]" 
+                    : "[WS: Global]";
+
+                Console.WriteLine($"[{win.TargetId:D2}] {workspaceStr} {win.ProcessName}.exe - \"{win.WindowTitle}\"");
+            }
+            Console.WriteLine(new string('-', 80));
+        }
+
+        private static void HandleRestoreCommand(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winstasis restore coding')");
+                return;
+            }
+
+            string profileName = args[1];
+            Console.WriteLine($"[TODO] Restoring profile: {profileName}...");
         }
     }
 }
