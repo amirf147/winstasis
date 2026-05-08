@@ -7,7 +7,7 @@ namespace WinStasis
     /// Wrapper for the official Windows 10/11 IVirtualDesktopManager COM interface.
     /// This allows us to extract the unique GUID of the workspace a window resides on.
     /// </summary>
-    public class VirtualDesktopHelper
+    internal class VirtualDesktopHelper
     {
         // 1. COM INTERFACE DEFINITION
         // This is the C# translation of the unmanaged C++ IVirtualDesktopManager interface.
@@ -66,8 +66,6 @@ namespace WinStasis
             int hr = _manager.GetWindowDesktopId(hWnd, out Guid desktopId);
 
             // HRESULT 0 (S_OK) means success.
-            // Other codes (like 0x8002802B) usually mean the window isn't tied to a specific desktop 
-            // (e.g., it's a global overlay, or it's on a completely different physical monitor setup).
 
             if (hr == 0)
             {
@@ -75,6 +73,37 @@ namespace WinStasis
             }
 
             return Guid.Empty;
+        }
+
+        /// <summary>
+        /// Moves a window to the specified Virtual Desktop GUID.
+        /// Handles ADR-0006 Option B (Fallback to Current Workspace) implicitly by catching errors 
+        /// (if the GUID doesn't exist, the COM call fails and we just leave the window where it is).
+        /// </summary>
+        public bool MoveWindowToDesktop(IntPtr hWnd, Guid desktopId)
+        {
+            if (_manager == null || desktopId == Guid.Empty)
+                return false;
+
+            try
+            {
+                int hr = _manager.MoveWindowToDesktop(hWnd, ref desktopId);
+
+                // TEMPORARY DEBUG LOGGING to see why Windows is rejecting the move
+
+                if (hr != 0)
+                {
+                    Console.WriteLine($"            -> [Debug] Windows API refused to move workspace. HRESULT: 0x{hr:X}");
+                }
+
+
+                return hr == 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"            -> [Debug] Exception moving workspace: {ex.Message}");
+                return false;
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.IO;
+using System.Linq;
 using WinStasis.Models;
 using WinStasis.Storage;
 
@@ -13,7 +14,7 @@ namespace WinStasis
     class Program
     {
         // =====================================================================
-        // WIN32 API IMPORTS (P/Invoke) - Restored from Phase 1
+        // WIN32 API IMPORTS (P/Invoke)
         // =====================================================================
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -141,7 +142,6 @@ namespace WinStasis
             var desktopHelper = new VirtualDesktopHelper();
             int currentTargetId = 1;
 
-            // Define the callback inline for easy access to captured variables
             bool CaptureWindowCallback(IntPtr hWnd, IntPtr lParam)
             {
                 if (!IsWindowVisible(hWnd)) return true;
@@ -168,13 +168,12 @@ namespace WinStasis
                 WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
                 GetWindowPlacement(hWnd, ref placement);
 
-                // Extract Omniscient Workspace GUID
                 Guid desktopId = desktopHelper.GetWindowDesktopId(hWnd);
 
                 capturedWindows.Add(new WindowRecord
                 {
                     TargetId = currentTargetId++,
-                    Hwnd = hWnd.ToInt64(), // Convert to long for JSON
+                    Hwnd = hWnd.ToInt64(),
                     ProcessName = processName,
                     WindowTitle = windowTitle,
                     X = rect.Left,
@@ -188,10 +187,8 @@ namespace WinStasis
                 return true;
             }
 
-            // Run the P/Invoke Scan
             EnumWindows(CaptureWindowCallback, IntPtr.Zero);
 
-            // Serialize and Save
             var profile = new SessionProfile
             {
                 ProfileName = profileName,
@@ -234,7 +231,6 @@ namespace WinStasis
 
             foreach (var win in profile.Windows)
             {
-                // Format the workspace GUID into a readable short string if it exists
                 string workspaceStr = win.DesktopId != Guid.Empty 
                     ? $"[WS: {win.DesktopId.ToString().Substring(0, 8)}...]" 
                     : "[WS: Global]";
@@ -253,7 +249,110 @@ namespace WinStasis
             }
 
             string profileName = args[1];
-            Console.WriteLine($"[TODO] Restoring profile: {profileName}...");
+            if (!ProfileManager.ProfileExists(profileName))
+            {
+                Console.WriteLine($"Error: Profile '{profileName}' not found.");
+                return;
+            }
+
+            // Parse --target argument if provided
+            int? targetId = null;
+            if (args.Length >= 4 && (args[2] == "--target" || args[2] == "-t"))
+            {
+                if (int.TryParse(args[3], out int parsedTarget))
+                {
+                    targetId = parsedTarget;
+                }
+                else
+                {
+                    Console.WriteLine("Error: Invalid target ID. Please provide a valid number.");
+                    return;
+                }
+            }
+
+            string json = File.ReadAllText(ProfileManager.GetFilePath(profileName));
+            var profile = JsonSerializer.Deserialize<SessionProfile>(json);
+
+            if (profile == null || profile.Windows.Length == 0)
+            {
+                Console.WriteLine($"Profile '{profileName}' is empty or corrupted.");
+                return;
+            }
+
+            var windowsToRestore = targetId.HasValue 
+                ? profile.Windows.Where(w => w.TargetId == targetId.Value).ToList() 
+                : profile.Windows.ToList();
+
+            if (windowsToRestore.Count == 0)
+            {
+                Console.WriteLine($"Error: No window found with Target ID {targetId}.");
+                return;
+            }
+
+            Console.WriteLine($"Restoring {(targetId.HasValue ? "target " + targetId : "all windows")} from profile '{profileName}'...\n");
+
+            var desktopHelper = new VirtualDesktopHelper();
+            int successCount = 0;
+            int notFoundCount = 0;
+
+            foreach (var win in windowsToRestore)
+            {
+                // 1. Hybrid Matching: Find the alive window handle
+                IntPtr hWnd = WindowRestorer.FindWindow(win);
+
+                if (hWnd == IntPtr.Zero)
+                {
+                    Console.WriteLine($"[Not Found] [{win.TargetId:D2}] {win.ProcessName}.exe - \"{win.WindowTitle}\"");
+                    Console.WriteLine($"            -> Application is closed or title changed. (Skipped per Opaque Window Rule)");
+                    notFoundCount++;
+                    continue;
+                }
+
+                // 2. Workspace Assignment: Throw it to the correct virtual desktop first
+                if (win.DesktopId != Guid.Empty)
+                {
+                    desktopHelper.MoveWindowToDesktop(hWnd, win.DesktopId);
+                }
+
+                // 3. Boundary Clamping: Make sure coordinates are safe for current screens
+                RECT targetRect = new RECT
+                {
+                    Left = win.X,
+                    Top = win.Y,
+                    Right = win.X + win.Width,
+                    Bottom = win.Y + win.Height
+                };
+                targetRect = WindowRestorer.ClampToNearestMonitor(targetRect);
+
+                // 4. Extract current placement so we don't destroy other flags
+                WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
+                GetWindowPlacement(hWnd, ref placement);
+
+                // 5. Apply new coords and Contextual State Override
+                placement.rcNormalPosition = targetRect;
+                placement.showCmd = win.ShowCmd;
+
+                // ADR-0004: If the user targeted a single window, but it was minimized (showCmd 2), force it to Normal (1)
+                if (targetId.HasValue && placement.showCmd == 2)
+                {
+                    placement.showCmd = 1;
+                }
+
+                // 6. Execute the move
+                bool result = WindowRestorer.SetWindowPlacement(hWnd, ref placement);
+
+                if (result)
+                {
+                    Console.WriteLine($"[Restored]  [{win.TargetId:D2}] {win.ProcessName}.exe");
+                    successCount++;
+                }
+                else
+                {
+                    Console.WriteLine($"[Failed]    [{win.TargetId:D2}] {win.ProcessName}.exe");
+                }
+            }
+
+            Console.WriteLine($"\nRestore complete: {successCount} restored, {notFoundCount} missing.");
         }
     }
 }
