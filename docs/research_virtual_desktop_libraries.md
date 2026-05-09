@@ -12,25 +12,18 @@ Because `IVirtualDesktopManagerInternal` is undocumented, Microsoft does not gua
 
 If a C# `P/Invoke` application defines the interface with the incorrect method order or memory offset, invoking a method will result in an `AccessViolationException`, instantly crashing the application.
 
-## 3. The 3rd-Party Solution: `VirtualDesktop`
+## 3. Existing 3rd-Party Solutions (Libraries)
 To solve this, the open-source community maintains libraries that sniff the user's OS build number at runtime and dynamically load the correct memory offsets.
 
-### Grabacr07's Original Library
-*   **Repository:** `Grabacr07/VirtualDesktop`
-*   **Significance:** The original pioneer in reverse-engineering the Windows 10 Virtual Desktop COM interfaces for C#. 
-*   **Status:** Largely inactive. It struggles to keep pace with the rapid release cycle of Windows 11 updates.
+### Slion's Fork (`VirtualDesktop` for C#)
+*   **Repository:** `Slion/VirtualDesktop`
+*   **Can it list programs per desktop?** It does not have a built-in `GetAllWindowsForDesktop()` command. It provides `VirtualDesktop.FromHwnd(hwnd)`, meaning a developer still has to write their own loop to find all open windows across the OS, and then ask the library "Which desktop is this window on?" 
+*   **Verdict:** It is a developer toolkit, not an end-user CLI application.
 
-### Slion's Fork (`VirtualDesktop`)
-*   **Repository:** [Slion/VirtualDesktop](https://github.com/Slion/VirtualDesktop)
-*   **Clarification on Capabilities:** To address the concern—**Yes, this library absolutely allows moving windows to specific workspaces.** Its core feature is exposing a `window.MoveToDesktop(desktop)` method that bypasses the OS `Access Denied` restriction by hooking into the `ImmersiveShell`. 
-*   **What it does NOT do:** The library is *not* a layout manager. It does not save or restore sessions on its own. It simply provides the low-level API commands (like `MoveToDesktop` and `GetDesktops`) that `winstasis` needs to execute a cross-workspace move.
-*   **How it works:** Slion's library uses dynamic COM instantiation and massive version-checking switch statements to map exact Windows Build numbers to the correct internal C++ interface definitions.
+### `pyvda` (Python Virtual Desktop Accessor)
+*   **Repository:** `mrob95/pyvda`
+*   **Can it list programs per desktop?** Yes, it provides an `AppView` object that can tell you a window's target desktop, and it has an `AppView.current()` method. 
+*   **Verdict:** Like Slion's work, `pyvda` is a *developer library*, not a standalone product. Furthermore, because it is written in Python, users have to install Python, run `pip install pyvda`, and write their own script. It also suffers from the exact same "Windows Update Breakage" problem because it relies on the same undocumented COM memory offsets under the hood.
 
-
-## 4. Architectural Implications for WinStasis
-If `winstasis` requires automated cross-workspace restoration, it must abandon the goal of being a purely dependency-free, self-contained native script. 
-
-**Trade-offs of adopting Slion/VirtualDesktop:**
-*   **Pros:** Achieves the "Holy Grail" of workspace orchestration without the user having to drag windows manually. It is actively maintained and supports modern Windows 11 builds.
-*   **Cons:** Introduces a heavy, volatile dependency. If Microsoft releases a new OS build and Slion has not yet updated the repository to map the new memory offsets, `winstasis` might fail or crash upon execution until the upstream dependency is patched.
-
+## 4. Does our Offshoot Product already exist?
+**No.** There are *libraries* that allow developers to piece this information together, but there is no widely adopted, zero-dependency, native standalone CLI tool designed specifically for end-users to just type a command and get a verbose map of their Virtual Desktops and windows. Our offshoot fills the gap between "heavy developer libraries" and "basic classic tools like WinSpy that don't understand workspaces."
