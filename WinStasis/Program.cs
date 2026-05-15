@@ -70,6 +70,7 @@ namespace WinStasis
         // =====================================================================
         // CLI ENTRY POINT
         // =====================================================================
+        [STAThread] // <--- Required for COM UI components (like VirtualDesktop) to initialize correctly.
         static void Main(string[] args)
         {
             if (args.Length == 0)
