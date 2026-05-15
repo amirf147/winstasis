@@ -32,21 +32,21 @@ This project was engineered using an **Agentic Workflow**. It leveraged highly i
 Ensure you have the .NET SDK installed.
 
 ### Commands
-```bash
+```powershell
 # Save current layout across ALL Virtual Desktops
-dotnet run -- save coding
+dotnet run save coding
 
 # Overwrite an existing profile
-dotnet run -- save coding --force
+dotnet run save coding --force
 
 # List all windows in a profile with Target IDs and Workspace GUIDs
-dotnet run -- list coding
+dotnet run list coding
 
 # Restore all windows in a profile (Across all Desktops!)
-dotnet run -- restore coding
+dotnet run restore coding
 
 # Restore a specific window by its Target ID
-dotnet run -- restore coding --target 5
+dotnet run restore coding --target 5
 ```
 
 > **Note on Elevated Windows:** Windows User Interface Privilege Isolation (UIPI) prevents normal applications from moving windows owned by an Administrator. To restore Admin-level apps (like an elevated PowerShell prompt), you must run `winstasis` from an Administrator terminal.
