@@ -14,6 +14,9 @@
 * **Hybrid Matching:** The two-step process of finding a window during restore (1. HWND, 2. Process + Title).
 * **Ambiguous Match:** When two windows share the exact same Process Name and Title. Resolved via First-Come, First-Served.
 * **Execution Model (On-Demand):** `winstasis` is a manual, point-in-time script.
-* **Boundary Clamping:** If a window's saved coordinates fall outside the currently active monitor bounds (e.g., due to unplugging a display), `winstasis` will shift the window inside the nearest visible screen edge rather than aborting.
+* **Single-Monitor Context:** The current architectural assumption where the user operates on a single primary display (e.g., a laptop screen). While coordinates are absolute, multi-monitor scaling and topology changes are currently handled via fallback mechanisms.
+* **Boundary Clamping:** If a window's saved coordinates fall outside the currently active monitor bounds (e.g., due to unplugging a display), `winstasis` will shift the window inside the nearest visible screen edge rather than aborting. This is the primary safety net for topology shifts in the current version.
 * **Contextual State Override:** During a bulk restore, saved window states (like Minimized) are strictly applied. During a single-target restore, the window is forced into a Normal/Visible state, assuming the user wishes to interact with it.
 * **Profile-Driven Storage:** Layouts are saved as explicit, user-named JSON profiles within a local `sessions/` directory. By default, attempting to save over an existing profile triggers a Safety Prompt, bypassable via a `--force` flag.
+* **Pinned (Global) Window:** A window that is set to appear on all Virtual Desktops simultaneously. WinStasis identifies these as belonging to a "Global" workspace.
+* **Workspace Alias:** A human-readable name or sequential index assigned to a Virtual Desktop (e.g., "Main" or "Desktop 2") to replace or supplement opaque OS GUIDs.

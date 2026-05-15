@@ -14,3 +14,4 @@ We will use **Boundary Clamping**. During a restore operation, `winstasis` will 
 * **Positive:** Users can safely run restores regardless of whether they have plugged or unplugged monitors since the snapshot was taken.
 * **Positive:** Prevents "lost" off-screen windows.
 * **Negative:** The relative layout of windows might be squished or overlapping when shifting from a large dual-monitor setup down to a single screen, but this is an acceptable fallback compared to losing access to the application.
+* **Note on Complexity:** While Boundary Clamping solves the "off-screen" problem, it does not account for complex coordinate translation across heterogeneous monitor layouts. Future phases (Phase 5) will explore more sophisticated repositioning logic.

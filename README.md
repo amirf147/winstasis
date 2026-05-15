@@ -12,6 +12,9 @@ This project serves a dual purpose:
 ## 🚀 Current Status: **Phase 4 (Omniscient Mover Complete)**
 *winstasis* has achieved full 1:1 restoration for window positioning, geometry, and cross-workspace orchestration. 
 
+> [!NOTE]
+> **Single-Monitor Focus:** The current implementation is optimized and tested for single-monitor/laptop setups. While cross-workspace movement is fully functional, behavior during significant resolution changes or complex multi-monitor topology shifts is currently being explored.
+
 ### 🛑 Overcoming the "Access Denied" Barrier
 During the development of Phase 3, we discovered that the official `IVirtualDesktopManager::MoveWindowToDesktop` API returns an **Access Denied (0x80070005)** error if a process attempts to move a window it does not explicitly own. This is a security design choice by Microsoft.
 
@@ -55,4 +58,5 @@ dotnet run restore coding --target 5
 The core MVP is complete. We are exploring stable offshoots that utilize the robust "Observer" engine we've built here:
 
 *   **[vdtree: Verbose Window Inspector](https://github.com/amirf147/vdtree)**: A read-only CLI tool that provides deep, structured metadata about the Windows desktop layer in a human-readable tree format.
+*   **Multi-Monitor Robustness**: Future testing and refinement for complex monitor topologies and resolution-dependent scaling.
 *   **[Caster UIA Context Engine](docs/research_ui_automation_vs_win32.md)**: A micro-service utilizing Microsoft UI Automation (UIA) to track keyboard focus inside specific application panes to trigger ultra fine-grained, context-aware speech grammars for the Caster accessibility toolkit.
