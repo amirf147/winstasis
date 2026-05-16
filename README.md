@@ -54,6 +54,32 @@ dotnet run restore coding --target 5
 
 > **Note on Elevated Windows:** Windows User Interface Privilege Isolation (UIPI) prevents normal applications from moving windows owned by an Administrator. To restore Admin-level apps (like an elevated PowerShell prompt), you must run `winstasis` from an Administrator terminal.
 
+## 💾 Profile Storage & Format
+Profiles are stored as JSON files in the `sessions/` directory at the project root. This directory is included in `.gitignore` to prevent private session data from being leaked to public repositories, but the folder itself is preserved via a `.keep` file.
+
+### Session JSON Example
+```json
+{
+  "ProfileName": "coding",
+  "CreatedAt": "2026-05-16T12:00:00",
+  "Windows": [
+    {
+      "TargetId": 1,
+      "ProcessName": "WindowsTerminal",
+      "WindowTitle": "PowerShell",
+      "X": 100,
+      "Y": 100,
+      "Width": 800,
+      "Height": 600,
+      "ShowCmd": 1,
+      "DesktopId": "cb9b56f8-276a-405f-b560-b4d97c759c98"
+    }
+  ]
+}
+```
+*   `ShowCmd`: 1 (Normal), 2 (Minimized), 3 (Maximized).
+*   `DesktopId`: The GUID of the Virtual Desktop. `0000...` represents the "Global" or current workspace.
+
 ## 🛤️ Future Directions & Offshoots
 The core MVP is complete. We are exploring stable offshoots that utilize the robust "Observer" engine we've built here:
 

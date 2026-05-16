@@ -4,6 +4,7 @@
 # Ignore our local session snapshots, but keep the folder
 sessions/*
 !sessions/.keep
+!sessions/example.json
 
 # Ignore environment variables (security first)
 .env
