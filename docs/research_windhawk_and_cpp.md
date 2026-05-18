@@ -5,7 +5,7 @@
 ## 1. What is Windhawk?
 Windhawk is a powerful customization utility created by Ramen Software (m417z). It allows developers to write "mods" that deeply customize the Windows Taskbar, Start Menu, and Explorer.
 
-**How it works:** Instead of acting as an external script (like `winstasis`), Windhawk uses **DLL Injection and API Hooking**. It literally forces its own C++ code directly into the memory space of `explorer.exe`. Once inside, it intercepts (hooks) the internal functions of Windows and changes their behavior on the fly.
+**How it works:** Instead of acting as an external script (like `winst`), Windhawk uses **DLL Injection and API Hooking**. It literally forces its own C++ code directly into the memory space of `explorer.exe`. Once inside, it intercepts (hooks) the internal functions of Windows and changes their behavior on the fly.
 
 ## 2. Does Windhawk suffer from the Windows Update problem?
 **Yes, immensely.** 
@@ -27,8 +27,8 @@ If an application blindly calls the 7th position, it will execute the wrong func
 Windhawk uses C++ because it is injecting code directly into `explorer.exe` (which is written in C++). C# runs inside the .NET Runtime, which makes it very difficult and heavy to inject directly into other system processes.
 
 ### C# vs C++ for WinStasis
-For a standalone utility like `winstasis`, **C# is actually safer than C++**. 
+For a standalone utility like `winst`, **C# is actually safer than C++**. 
 *   If a C++ injected mod calls the wrong memory offset, it will instantly crash `explorer.exe` (restarting your entire Windows Taskbar). 
-*   If a C# application like `winstasis` calls the wrong memory offset, only `winstasis` crashes. 
+*   If a C# application like `winst` calls the wrong memory offset, only `winst` crashes. 
 
-**Conclusion:** Rewriting `winstasis` in C++ would require significantly more boilerplate code, would be harder to maintain, and would *not* solve the OS breakage issue. Relying on a C# wrapper library (like Slion's `VirtualDesktop`) is functionally identical to what C++ developers do: relying on a massive `switch` statement that checks the OS version and applies the correct memory offsets.
+**Conclusion:** Rewriting `winst` in C++ would require significantly more boilerplate code, would be harder to maintain, and would *not* solve the OS breakage issue. Relying on a C# wrapper library (like Slion's `VirtualDesktop`) is functionally identical to what C++ developers do: relying on a massive `switch` statement that checks the OS version and applies the correct memory offsets.

@@ -1,8 +1,8 @@
-# 🪟 winstasis
+# 🪟 WinStasis
 
 **A lightweight, native C# Window Session Manager built for power users.**
 
-*winstasis* is a command-line utility designed to capture, save, and seamlessly restore the exact positions, sizes, states, and **Virtual Desktops** of Windows applications. It is built to tame the chaos of multi-workspace reboots and ensure that critical tools—including accessibility overlays and development environments—stay exactly where they belong.
+*winst* is a command-line utility designed to capture, save, and seamlessly restore the exact positions, sizes, states, and **Virtual Desktops** of Windows applications. It is built to tame the chaos of multi-workspace reboots and ensure that critical tools—including accessibility overlays and development environments—stay exactly where they belong.
 
 ## 🎯 Project Goals
 This project serves a dual purpose:
@@ -10,13 +10,13 @@ This project serves a dual purpose:
 2. **Pedagogy:** A deep-dive into C# and the Win32 API. This project is a stepping stone toward mastering Windows internals, with the long-term goal of developing advanced, low-level accessibility tools and high-performance window management solutions.
 
 ## 🚀 Current Status: **Phase 4 (Omniscient Mover Complete)**
-*winstasis* has achieved full 1:1 restoration for window positioning, geometry, and cross-workspace orchestration. 
+*winst* has achieved full 1:1 restoration for window positioning, geometry, and cross-workspace orchestration. 
 
 ### 🛑 Overcoming the "Access Denied" Barrier
 During the development of Phase 3, we discovered that the official `IVirtualDesktopManager::MoveWindowToDesktop` API returns an **Access Denied (0x80070005)** error if a process attempts to move a window it does not explicitly own. This is a security design choice by Microsoft.
 
 ### 🔓 The Solution: `Slions.VirtualDesktop`
-To move windows globally, we must use `IVirtualDesktopManagerInternal`. Because this interface is undocumented and changes its memory layout (`vtable`) with almost every major Windows update, we integrated the [Slion/VirtualDesktop](https://github.com/Slion/VirtualDesktop) NuGet package. This library manages the volatility by dynamically mapping memory offsets based on your exact Windows 11 build number, giving `winstasis` the "Holy Grail" of cross-workspace window movement.
+To move windows globally, we must use `IVirtualDesktopManagerInternal`. Because this interface is undocumented and changes its memory layout (`vtable`) with almost every major Windows update, we integrated the [Slion/VirtualDesktop](https://github.com/Slion/VirtualDesktop) NuGet package. This library manages the volatility by dynamically mapping memory offsets based on your exact Windows 11 build number, giving `winst` the "Holy Grail" of cross-workspace window movement.
 
 ## 🛠️ Core Accomplishments
 - **Hybrid Matching:** Reliable window resolution using HWND and Process/Title fallbacks.
@@ -32,12 +32,12 @@ This project was engineered using an **Agentic Workflow**. It leveraged highly i
 ## 🛠️ Usage & Installation
 
 ### Global Installation (Add to PATH)
-To use `winstasis` globally from any terminal, you should publish it as a self-contained executable:
+To use `winst` globally from any terminal, you should publish it as a self-contained executable:
 ```bash
 # Build a standalone .exe
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 
-# The resulting winstasis.exe will be output to:
+# The resulting winst.exe will be output to:
 # WinStasis\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\
 
 # Add this folder to your system's %PATH% Environment Variable.
@@ -50,22 +50,22 @@ Saved session profiles are securely stored in your local Windows AppData directo
 ### Commands
 ```bash
 # Save current layout across ALL Virtual Desktops
-winstasis save coding
+winst save coding
 
 # Overwrite an existing profile
-winstasis save coding --force
+winst save coding --force
 
 # List all windows in a profile with Target IDs and human-readable Workspaces
-winstasis list coding
+winst list coding
 
 # Restore all windows in a profile (Across all Desktops!)
-winstasis restore coding
+winst restore coding
 
 # Restore a specific window by its Target ID
-winstasis restore coding --target 5
+winst restore coding --target 5
 ```
 
-> **Note on Elevated Windows:** Windows User Interface Privilege Isolation (UIPI) prevents normal applications from moving windows owned by an Administrator. To restore Admin-level apps (like an elevated PowerShell prompt), you must run `winstasis` from an Administrator terminal.
+> **Note on Elevated Windows:** Windows User Interface Privilege Isolation (UIPI) prevents normal applications from moving windows owned by an Administrator. To restore Admin-level apps (like an elevated PowerShell prompt), you must run `winst` from an Administrator terminal.
 
 ## 💾 Profile Storage & Format
 Profiles are saved as JSON files inside the standardized Windows Local AppData directory:

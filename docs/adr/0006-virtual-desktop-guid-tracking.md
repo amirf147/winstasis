@@ -12,7 +12,7 @@ We will use an **Omniscient Workspace Strategy** powered by official COM interfa
 1. **Extraction:** Use the official `IVirtualDesktopManager::GetWindowDesktopId` to extract the unique GUID of the workspace for each window.
 2. **Readability:** Parse the Windows Registry (`HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops`) to map these GUIDs to human-readable Desktop Numbers (Desktop 1, Desktop 2) for the CLI list command.
 3. **Restoration:** Use `MoveWindowToDesktop(HWND, GUID)`. 
-4. **Fallback (Option B):** If a user reboots and Windows "forgets" extra workspaces, restoring to a missing GUID will fail. If `winstasis` detects a missing workspace GUID, it will fall back to restoring the window onto the current active desktop (salvaging the window).
+4. **Fallback (Option B):** If a user reboots and Windows "forgets" extra workspaces, restoring to a missing GUID will fail. If `winst` detects a missing workspace GUID, it will fall back to restoring the window onto the current active desktop (salvaging the window).
 
 *Future Proofing:* The codebase will be structured so that Option A (Undocumented Auto-Creation of missing workspaces) can be slotted in at a later date if the user accepts the maintenance burden.
 

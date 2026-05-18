@@ -101,12 +101,12 @@ namespace WinStasis
 
         private static void ShowHelp()
         {
-            Console.WriteLine("🪟 winstasis - Window State Manager\n");
+            Console.WriteLine("🪟 winst - Window State Manager\n");
             Console.WriteLine("Usage:");
-            Console.WriteLine("  winstasis save <profile> [--force]      Save the current window layout to a profile.");
-            Console.WriteLine("  winstasis list <profile>                List all windows saved in a profile with their Target IDs.");
-            Console.WriteLine("  winstasis restore <profile>             Restore all windows in a profile.");
-            Console.WriteLine("  winstasis restore <profile> --target X  Restore only the window with Target ID 'X'.");
+            Console.WriteLine("  winst save <profile> [--force]      Save the current window layout to a profile.");
+            Console.WriteLine("  winst list <profile>                List all windows saved in a profile with their Target IDs.");
+            Console.WriteLine("  winst restore <profile>             Restore all windows in a profile.");
+            Console.WriteLine("  winst restore <profile> --target X  Restore only the window with Target ID 'X'.");
         }
 
         // =====================================================================
@@ -116,7 +116,7 @@ namespace WinStasis
         {
             if (args.Length < 2)
             {
-                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winstasis save coding')");
+                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winst save coding')");
                 return;
             }
 
@@ -210,7 +210,7 @@ namespace WinStasis
         {
             if (args.Length < 2)
             {
-                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winstasis list coding')");
+                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winst list coding')");
                 return;
             }
 
@@ -262,7 +262,7 @@ namespace WinStasis
         {
             if (args.Length < 2)
             {
-                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winstasis restore coding')");
+                Console.WriteLine("Error: Please provide a profile name. (e.g., 'winst restore coding')");
                 return;
             }
 

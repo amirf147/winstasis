@@ -3,7 +3,7 @@
 **Status:** Accepted
 
 ## Context
-During Phase 3 testing, we discovered a hidden security restriction in the official `IVirtualDesktopManager::MoveWindowToDesktop` API: it returns `0x80070005` (Access Denied) when attempting to move a window owned by a different process, even when running as an Administrator. This completely breaks `winstasis`'s ability to restore cross-workspace layouts.
+During Phase 3 testing, we discovered a hidden security restriction in the official `IVirtualDesktopManager::MoveWindowToDesktop` API: it returns `0x80070005` (Access Denied) when attempting to move a window owned by a different process, even when running as an Administrator. This completely breaks `winst`'s ability to restore cross-workspace layouts.
 
 The tool correctly *extracts* the GUIDs using the official API, but fails when trying to *apply* them.
 

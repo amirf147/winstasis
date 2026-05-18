@@ -3,7 +3,7 @@
 **Status:** Accepted
 
 ## Context
-`winstasis` needs to reliably identify windows to restore their exact coordinates. 
+`winst` needs to reliably identify windows to restore their exact coordinates. 
 * Window Handles (`HWND`) are perfect, but they are volatile and destroyed upon app closure or system reboot.
 * Window Titles are persistent across reboots, but can be brittle (e.g., changing active tabs) and ambiguous (multiple windows with the same title).
 * A common user scenario involves accidentally closing a Virtual Desktop/Workspace, which dumps windows onto the main desktop but does *not* destroy the application or its `HWND`.
