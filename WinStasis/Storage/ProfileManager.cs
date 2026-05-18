@@ -5,27 +5,9 @@ namespace WinStasis.Storage
 {
     public static class ProfileManager
     {
-        private static readonly string SessionsDir = FindSessionsDirectory();
-
-        private static string FindSessionsDirectory()
-        {
-            var currentDir = AppDomain.CurrentDomain.BaseDirectory;
-            while (!string.IsNullOrEmpty(currentDir))
-            {
-                var sessionsPath = Path.Combine(currentDir, "sessions");
-                // Avoid picking up 'sessions' inside bin/obj folders
-                bool isInsideBuildFolder = currentDir.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar) || 
-                                           currentDir.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar);
-
-                if (Directory.Exists(sessionsPath) && !isInsideBuildFolder)
-                {
-                    return sessionsPath;
-                }
-                currentDir = Path.GetDirectoryName(currentDir);
-            }
-            // Fallback to local sessions if not found
-            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "sessions");
-        }
+        // Migrate storage to the standard Windows AppData/Local folder
+        private static readonly string AppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinStasis");
+        private static readonly string SessionsDir = Path.Combine(AppDataDir, "sessions");
 
         public static void EnsureDirectoryExists()
         {
@@ -45,6 +27,11 @@ namespace WinStasis.Storage
         public static bool ProfileExists(string profileName)
         {
             return File.Exists(GetFilePath(profileName));
+        }
+
+        public static string GetStorageLocation()
+        {
+            return SessionsDir;
         }
     }
 }

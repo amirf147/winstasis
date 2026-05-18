@@ -70,7 +70,7 @@ namespace WinStasis
         // =====================================================================
         // CLI ENTRY POINT
         // =====================================================================
-        [STAThread] // <--- Required for COM UI components (like VirtualDesktop) to initialize correctly.
+        [STAThread] // <-- THIS IS CRITICAL FOR THE VIRTUAL DESKTOP COM LIBRARY
         static void Main(string[] args)
         {
             if (args.Length == 0)
@@ -170,6 +170,7 @@ namespace WinStasis
                 GetWindowPlacement(hWnd, ref placement);
 
                 Guid desktopId = desktopHelper.GetWindowDesktopId(hWnd);
+                bool isPinned = desktopHelper.IsWindowPinned(hWnd);
 
                 capturedWindows.Add(new WindowRecord
                 {
@@ -182,7 +183,8 @@ namespace WinStasis
                     Width = rect.Right - rect.Left,
                     Height = rect.Bottom - rect.Top,
                     ShowCmd = placement.showCmd,
-                    DesktopId = desktopId
+                    DesktopId = desktopId,
+                    IsPinned = isPinned
                 });
 
                 return true;
@@ -201,6 +203,7 @@ namespace WinStasis
             File.WriteAllText(ProfileManager.GetFilePath(profileName), json);
 
             Console.WriteLine($"Successfully saved {capturedWindows.Count} windows to profile '{profileName}'.");
+            Console.WriteLine($"Storage Location: {ProfileManager.GetFilePath(profileName)}");
         }
 
         private static void HandleListCommand(string[] args)
@@ -227,16 +230,30 @@ namespace WinStasis
                 return;
             }
 
+            var desktopHelper = new VirtualDesktopHelper();
+
             Console.WriteLine($"Profile: {profile.ProfileName} (Saved: {profile.CreatedAt})");
             Console.WriteLine(new string('-', 80));
 
             foreach (var win in profile.Windows)
             {
-                string workspaceStr = win.DesktopId != Guid.Empty 
-                    ? $"[WS: {win.DesktopId.ToString().Substring(0, 8)}...]" 
-                    : "[WS: Global]";
+                string workspaceStr;
 
-                Console.WriteLine($"[{win.TargetId:D2}] {workspaceStr} {win.ProcessName}.exe - \"{win.WindowTitle}\"");
+                if (win.IsPinned)
+                {
+                    workspaceStr = "[WS: Pinned]";
+                }
+                else if (win.DesktopId != Guid.Empty)
+                {
+                    int deskNum = desktopHelper.GetDesktopNumber(win.DesktopId);
+                    workspaceStr = deskNum > 0 ? $"[WS: Desk {deskNum}]" : $"[WS: {win.DesktopId.ToString().Substring(0, 8)}...]";
+                }
+                else
+                {
+                    workspaceStr = "[WS: Global]";
+                }
+
+                Console.WriteLine($"[{win.TargetId:D2}] {workspaceStr,-14} {win.ProcessName}.exe - \"{win.WindowTitle}\"");
             }
             Console.WriteLine(new string('-', 80));
         }
@@ -309,10 +326,23 @@ namespace WinStasis
                     continue;
                 }
 
-                // 2. Workspace Assignment: Throw it to the correct virtual desktop first
-                if (win.DesktopId != Guid.Empty)
+                // 2. Workspace Assignment: Handle Pinned Windows and Desktop moves
+                if (win.IsPinned)
                 {
-                    desktopHelper.MoveWindowToDesktop(hWnd, win.DesktopId);
+                    desktopHelper.PinWindow(hWnd);
+                }
+                else
+                {
+                    // If it shouldn't be pinned but currently is, unpin it first
+                    if (desktopHelper.IsWindowPinned(hWnd))
+                    {
+                        desktopHelper.UnpinWindow(hWnd);
+                    }
+
+                    if (win.DesktopId != Guid.Empty)
+                    {
+                        desktopHelper.MoveWindowToDesktop(hWnd, win.DesktopId);
+                    }
                 }
 
                 // 3. Boundary Clamping: Make sure coordinates are safe for current screens

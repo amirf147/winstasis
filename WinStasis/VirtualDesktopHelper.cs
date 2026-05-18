@@ -14,7 +14,6 @@ namespace WinStasis
         {
             try 
             {
-                // Most VirtualDesktop libraries require explicit initialization
                 VirtualDesktop.Configure();
             } 
             catch (Exception ex)
@@ -39,6 +38,63 @@ namespace WinStasis
                 Console.WriteLine($"[Debug] GetWindowDesktopId failed for {hWnd}: {ex.Message}");
                 return Guid.Empty;
             }
+        }
+
+        /// <summary>
+        /// Gets the human-readable 1-based index of the Virtual Desktop.
+        /// </summary>
+        public int GetDesktopNumber(Guid desktopId)
+        {
+            try
+            {
+                var desktops = VirtualDesktop.GetDesktops();
+                for (int i = 0; i < desktops.Length; i++)
+                {
+                    if (desktops[i].Id == desktopId)
+                        return i + 1;
+                }
+            }
+            catch { }
+            return -1;
+        }
+
+        /// <summary>
+        /// Checks if a window is pinned to appear on all virtual desktops.
+        /// </summary>
+        public bool IsWindowPinned(IntPtr hWnd)
+        {
+            try
+            {
+                return VirtualDesktop.IsPinnedWindow(hWnd);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pins a window to appear on all virtual desktops.
+        /// </summary>
+        public void PinWindow(IntPtr hWnd)
+        {
+            try
+            {
+                VirtualDesktop.PinWindow(hWnd);
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Unpins a window from appearing on all virtual desktops.
+        /// </summary>
+        public void UnpinWindow(IntPtr hWnd)
+        {
+            try
+            {
+                VirtualDesktop.UnpinWindow(hWnd);
+            }
+            catch { }
         }
 
         /// <summary>

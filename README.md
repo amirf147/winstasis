@@ -12,9 +12,6 @@ This project serves a dual purpose:
 ## 🚀 Current Status: **Phase 4 (Omniscient Mover Complete)**
 *winstasis* has achieved full 1:1 restoration for window positioning, geometry, and cross-workspace orchestration. 
 
-> [!NOTE]
-> **Single-Monitor Focus:** The current implementation is optimized and tested for single-monitor/laptop setups. While cross-workspace movement is fully functional, behavior during significant resolution changes or complex multi-monitor topology shifts is currently being explored.
-
 ### 🛑 Overcoming the "Access Denied" Barrier
 During the development of Phase 3, we discovered that the official `IVirtualDesktopManager::MoveWindowToDesktop` API returns an **Access Denied (0x80070005)** error if a process attempts to move a window it does not explicitly own. This is a security design choice by Microsoft.
 
@@ -26,45 +23,63 @@ To move windows globally, we must use `IVirtualDesktopManagerInternal`. Because 
 - **Boundary Clamping:** Safe restoration across changing monitor topologies (e.g., docking/undocking).
 - **JSON Orchestration:** Fully functional session capture and CLI routing.
 - **Contextual Overrides:** Intelligent state management (e.g., waking minimized windows).
-- **Omniscient Workspace Orchestration:** Perfect restoration of windows to their correct Virtual Desktops.
+- **Omniscient Workspace Orchestration:** Perfect restoration of windows to their correct Virtual Desktops with human-readable Workspace mapping.
+- **Pinned Window Tracking:** Ability to detect and restore windows that are pinned across all virtual desktops.
 
 ## 🧠 Development Methodology
 This project was engineered using an **Agentic Workflow**. It leveraged highly iterative development cycles, AI-assisted pair programming within the Anti-Gravity editor, and a "Grill-with-Docs" strategy to ensure the codebase always matches its architectural decisions (ADRs).
 
-## 🛠️ Usage
-Ensure you have the .NET SDK installed.
+## 🛠️ Usage & Installation
+
+### Global Installation (Add to PATH)
+To use `winstasis` globally from any terminal, you should publish it as a self-contained executable:
+```bash
+# Build a standalone .exe
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+
+# The resulting winstasis.exe will be output to:
+# WinStasis\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\
+
+# Add this folder to your system's %PATH% Environment Variable.
+```
+
+### Storage Location
+Saved session profiles are securely stored in your local Windows AppData directory:
+`%LOCALAPPDATA%\WinStasis\sessions\`
 
 ### Commands
-```powershell
+```bash
 # Save current layout across ALL Virtual Desktops
-dotnet run save coding
+winstasis save coding
 
 # Overwrite an existing profile
-dotnet run save coding --force
+winstasis save coding --force
 
-# List all windows in a profile with Target IDs and Workspace GUIDs
-dotnet run list coding
+# List all windows in a profile with Target IDs and human-readable Workspaces
+winstasis list coding
 
 # Restore all windows in a profile (Across all Desktops!)
-dotnet run restore coding
+winstasis restore coding
 
 # Restore a specific window by its Target ID
-dotnet run restore coding --target 5
+winstasis restore coding --target 5
 ```
 
 > **Note on Elevated Windows:** Windows User Interface Privilege Isolation (UIPI) prevents normal applications from moving windows owned by an Administrator. To restore Admin-level apps (like an elevated PowerShell prompt), you must run `winstasis` from an Administrator terminal.
 
 ## 💾 Profile Storage & Format
-Profiles are stored as JSON files in the `sessions/` directory at the project root. This directory is included in `.gitignore` to prevent private session data from being leaked to public repositories, but the folder itself is preserved via a `.keep` file.
+Profiles are saved as JSON files inside the standardized Windows Local AppData directory:
+`%LOCALAPPDATA%\WinStasis\sessions\`
 
 ### Session JSON Example
 ```json
 {
   "ProfileName": "coding",
-  "CreatedAt": "2026-05-16T12:00:00",
+  "CreatedAt": "2026-05-18T12:00:00",
   "Windows": [
     {
       "TargetId": 1,
+      "Hwnd": 0,
       "ProcessName": "WindowsTerminal",
       "WindowTitle": "PowerShell",
       "X": 100,
@@ -72,17 +87,19 @@ Profiles are stored as JSON files in the `sessions/` directory at the project ro
       "Width": 800,
       "Height": 600,
       "ShowCmd": 1,
-      "DesktopId": "cb9b56f8-276a-405f-b560-b4d97c759c98"
+      "DesktopId": "cb9b56f8-276a-405f-b560-b4d97c759c98",
+      "IsPinned": false
     }
   ]
 }
 ```
 *   `ShowCmd`: 1 (Normal), 2 (Minimized), 3 (Maximized).
-*   `DesktopId`: The GUID of the Virtual Desktop. `0000...` represents the "Global" or current workspace.
+*   `DesktopId`: The GUID of the Virtual Desktop. `00000000-0000-0000-0000-000000000000` represents the "Global" workspace.
+*   `IsPinned`: `true` if the window is pinned globally to appear on all Virtual Desktops simultaneously.
 
 ## 🛤️ Future Directions & Offshoots
 The core MVP is complete. We are exploring stable offshoots that utilize the robust "Observer" engine we've built here:
 
 *   **[vdtree: Verbose Window Inspector](https://github.com/amirf147/vdtree)**: A read-only CLI tool that provides deep, structured metadata about the Windows desktop layer in a human-readable tree format.
-*   **Multi-Monitor Robustness**: Future testing and refinement for complex monitor topologies and resolution-dependent scaling.
 *   **[Caster UIA Context Engine](docs/research_ui_automation_vs_win32.md)**: A micro-service utilizing Microsoft UI Automation (UIA) to track keyboard focus inside specific application panes to trigger ultra fine-grained, context-aware speech grammars for the Caster accessibility toolkit.
+*   **Phase 5 (Deferred): Multi-Monitor Topology Mapping:** Deep hardware mapping to perfectly restore coordinates across complex docking/undocking scenarios (currently handled safely, but simply, via Boundary Clamping).

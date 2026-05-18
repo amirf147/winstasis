@@ -33,5 +33,6 @@ namespace WinStasis.Models
 
         // 3. WORKSPACE
         public Guid DesktopId { get; set; }             // The unique GUID of the Virtual Desktop this window was on
+        public bool IsPinned { get; set; }              // True if the window is pinned to all workspaces
     }
 }
