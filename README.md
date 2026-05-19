@@ -4,6 +4,8 @@
 
 *winst* is a command-line utility designed to capture, save, and seamlessly restore the exact positions, sizes, states, and **Virtual Desktops** of Windows applications. It is built to tame the chaos of multi-workspace reboots and ensure that critical tools—including accessibility overlays and development environments—stay exactly where they belong.
 
+![WinStasis Demo](docs/assets/winstasis-demo.gif)
+
 ## 🎯 Project Goals
 This project serves a dual purpose:
 1. **Utility:** Creating a "set-it-and-forget-it" tool to eliminate "window drift" and manual repositioning after system restarts.
