@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using WinStasis.Models;
 using WinStasis.Storage;
+using WinStasis.Adapters;
 
 namespace WinStasis
 {
@@ -297,93 +298,9 @@ namespace WinStasis
                 return;
             }
 
-            var windowsToRestore = targetId.HasValue 
-                ? profile.Windows.Where(w => w.TargetId == targetId.Value).ToList() 
-                : profile.Windows.ToList();
-
-            if (windowsToRestore.Count == 0)
-            {
-                Console.WriteLine($"Error: No window found with Target ID {targetId}.");
-                return;
-            }
-
-            Console.WriteLine($"Restoring {(targetId.HasValue ? "target " + targetId : "all windows")} from profile '{profileName}'...\n");
-
-            var desktopHelper = new VirtualDesktopHelper();
-            int successCount = 0;
-            int notFoundCount = 0;
-
-            foreach (var win in windowsToRestore)
-            {
-                // 1. Hybrid Matching: Find the alive window handle
-                IntPtr hWnd = WindowRestorer.FindWindow(win);
-
-                if (hWnd == IntPtr.Zero)
-                {
-                    Console.WriteLine($"[Not Found] [{win.TargetId:D2}] {win.ProcessName}.exe - \"{win.WindowTitle}\"");
-                    Console.WriteLine($"            -> Application is closed or title changed. (Skipped per Opaque Window Rule)");
-                    notFoundCount++;
-                    continue;
-                }
-
-                // 2. Workspace Assignment: Handle Pinned Windows and Desktop moves
-                if (win.IsPinned)
-                {
-                    desktopHelper.PinWindow(hWnd);
-                }
-                else
-                {
-                    // If it shouldn't be pinned but currently is, unpin it first
-                    if (desktopHelper.IsWindowPinned(hWnd))
-                    {
-                        desktopHelper.UnpinWindow(hWnd);
-                    }
-
-                    if (win.DesktopId != Guid.Empty)
-                    {
-                        desktopHelper.MoveWindowToDesktop(hWnd, win.DesktopId);
-                    }
-                }
-
-                // 3. Boundary Clamping: Make sure coordinates are safe for current screens
-                RECT targetRect = new RECT
-                {
-                    Left = win.X,
-                    Top = win.Y,
-                    Right = win.X + win.Width,
-                    Bottom = win.Y + win.Height
-                };
-                targetRect = WindowRestorer.ClampToNearestMonitor(targetRect);
-
-                // 4. Extract current placement so we don't destroy other flags
-                WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
-                GetWindowPlacement(hWnd, ref placement);
-
-                // 5. Apply new coords and Contextual State Override
-                placement.rcNormalPosition = targetRect;
-                placement.showCmd = win.ShowCmd;
-
-                // ADR-0004: If the user targeted a single window, but it was minimized (showCmd 2), force it to Normal (1)
-                if (targetId.HasValue && placement.showCmd == 2)
-                {
-                    placement.showCmd = 1;
-                }
-
-                // 6. Execute the move
-                bool result = WindowRestorer.SetWindowPlacement(hWnd, ref placement);
-
-                if (result)
-                {
-                    Console.WriteLine($"[Restored]  [{win.TargetId:D2}] {win.ProcessName}.exe");
-                    successCount++;
-                }
-                else
-                {
-                    Console.WriteLine($"[Failed]    [{win.TargetId:D2}] {win.ProcessName}.exe");
-                }
-            }
-
-            Console.WriteLine($"\nRestore complete: {successCount} restored, {notFoundCount} missing.");
+            var env = new WindowsEnvironmentAdapter();
+            var restorer = new WindowRestorer(env);
+            restorer.Restore(profile, targetId);
         }
     }
 }

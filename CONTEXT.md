@@ -1,6 +1,6 @@
 # Domain Glossary: winst
 
-* **Win32 Native Boundary:** The unmanaged C++ layer of the Windows OS (`user32.dll`). 
+* **Win32 Native Boundary:** The unmanaged C++ layer of the Windows OS (`user32.dll`). WinStasis isolates this boundary behind an OS Adapter (`IWindowingEnvironment`) to decouple domain logic from native memory layouts.
 * **Window State:** The geometric and visual properties of an application on screen (X/Y, Width/Height, ShowCmd).
 * **Opaque Window Rule:** WinStasis manages the OS-level container. It does NOT inspect internal application state, read tabs, or launch processes. If an app is closed, WinStasis expects the user to launch it before restoring.
 * **Window Handle (HWND):** The temporary, OS-assigned unique ID for a window.

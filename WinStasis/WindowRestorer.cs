@@ -1,131 +1,169 @@
 using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text;
+using System.Collections.Generic;
+using System.Linq;
+using WinStasis.Interfaces;
 using WinStasis.Models;
 
 namespace WinStasis
 {
     /// <summary>
-    /// Handles the Phase 3 logic: Finding the correct window, clamping coordinates, and applying state.
+    /// Handles the entire restore pipeline using the provided OS environment port.
     /// </summary>
-    internal static class WindowRestorer
+    public class WindowRestorer
     {
-        private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+        private readonly IWindowingEnvironment _env;
 
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool IsWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr MonitorFromRect([In] ref Program.RECT lprc, uint dwFlags);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetWindowPlacement(IntPtr hWnd, [In] ref Program.WINDOWPLACEMENT lpwndpl);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MONITORINFO
+        public WindowRestorer(IWindowingEnvironment env)
         {
-            public int cbSize;
-            public Program.RECT rcMonitor;
-            public Program.RECT rcWork;
-            public uint dwFlags;
+            _env = env;
+        }
+
+        public void Restore(SessionProfile profile, int? targetId = null)
+        {
+            var windowsToRestore = targetId.HasValue 
+                ? profile.Windows.Where(w => w.TargetId == targetId.Value).ToList() 
+                : profile.Windows.ToList();
+
+            if (windowsToRestore.Count == 0)
+            {
+                Console.WriteLine($"Error: No window found with Target ID {targetId}.");
+                return;
+            }
+
+            Console.WriteLine($"Restoring {(targetId.HasValue ? "target " + targetId : "all windows")} from profile '{profile.ProfileName}'...\n");
+
+            int successCount = 0;
+            int notFoundCount = 0;
+
+            foreach (var win in windowsToRestore)
+            {
+                long hWnd = FindWindow(win);
+
+                if (hWnd == 0)
+                {
+                    Console.WriteLine($"[Not Found] [{win.TargetId:D2}] {win.ProcessName}.exe - \"{win.WindowTitle}\"");
+                    Console.WriteLine($"            -> Application is closed or title changed. (Skipped per Opaque Window Rule)");
+                    notFoundCount++;
+                    continue;
+                }
+
+                // 2. Workspace Assignment
+                if (win.IsPinned)
+                {
+                    _env.PinWindow(hWnd);
+                }
+                else
+                {
+                    if (_env.IsWindowPinned(hWnd))
+                    {
+                        _env.UnpinWindow(hWnd);
+                    }
+
+                    if (win.DesktopId != Guid.Empty)
+                    {
+                        _env.MoveWindowToDesktop(hWnd, win.DesktopId);
+                    }
+                }
+
+                // 3. Boundary Clamping
+                WindowRect targetRect = new WindowRect(
+                    win.X, 
+                    win.Y, 
+                    win.X + win.Width, 
+                    win.Y + win.Height
+                );
+                targetRect = ClampToNearestMonitor(targetRect);
+
+                // 4. Placement & Contextual Override
+                WindowPlacement placement = _env.GetWindowPlacement(hWnd);
+                placement.NormalPosition = targetRect;
+                placement.ShowCmd = win.ShowCmd;
+
+                // ADR-0004: Contextual State Override
+                if (targetId.HasValue && placement.ShowCmd == 2)
+                {
+                    placement.ShowCmd = 1;
+                }
+
+                bool result = _env.SetWindowPlacement(hWnd, placement);
+
+                if (result)
+                {
+                    Console.WriteLine($"[Restored]  [{win.TargetId:D2}] {win.ProcessName}.exe");
+                    successCount++;
+                }
+                else
+                {
+                    Console.WriteLine($"[Failed]    [{win.TargetId:D2}] {win.ProcessName}.exe");
+                }
+            }
+
+            Console.WriteLine($"\nRestore complete: {successCount} restored, {notFoundCount} missing.");
         }
 
         // =====================================================================
         // 1. HYBRID MATCHING (ADR-0001)
         // =====================================================================
-        public static IntPtr FindWindow(WindowRecord record)
+        private long FindWindow(WindowRecord record)
         {
-            IntPtr savedHwnd = (IntPtr)record.Hwnd;
+            long savedHwnd = record.Hwnd;
 
             // Fast Path: Check if the saved HWND still exists and is visible
-            if (IsWindow(savedHwnd) && Program.IsWindowVisible(savedHwnd))
+            if (_env.IsWindowAlive(savedHwnd) && _env.IsWindowVisible(savedHwnd))
             {
-                // HWNDs can be recycled by the OS. We do a quick Process Name check to ensure 
-                // we aren't moving a completely different app that stole this HWND.
-                _ = Program.GetWindowThreadProcessId(savedHwnd, out uint processId);
-                try
+                // Verify process name hasn't changed (recycled HWND check)
+                if (_env.GetWindowProcessName(savedHwnd).Equals(record.ProcessName, StringComparison.OrdinalIgnoreCase))
                 {
-                    using Process proc = Process.GetProcessById((int)processId);
-                    if (proc.ProcessName.Equals(record.ProcessName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return savedHwnd; // 100% Match!
-                    }
+                    return savedHwnd; // 100% Match!
                 }
-                catch { /* Ignore access denied and fall back */ }
             }
 
             // Fallback Path: First-Come, First-Served match on Process Name + Window Title
-            IntPtr foundHwnd = IntPtr.Zero;
-
-            bool MatchWindowCallback(IntPtr hWnd, IntPtr lParam)
+            foreach (long hWnd in _env.GetVisibleWindows())
             {
-                if (!Program.IsWindowVisible(hWnd)) return true;
-
-                StringBuilder titleBuilder = new(256);
-                _ = Program.GetWindowText(hWnd, titleBuilder, 256);
-                string windowTitle = titleBuilder.ToString().Trim();
-
-                if (windowTitle != record.WindowTitle) return true; // Title doesn't match
-
-                _ = Program.GetWindowThreadProcessId(hWnd, out uint processId);
-                try
+                if (_env.GetWindowTitle(hWnd) == record.WindowTitle)
                 {
-                    using Process proc = Process.GetProcessById((int)processId);
-                    if (proc.ProcessName.Equals(record.ProcessName, StringComparison.OrdinalIgnoreCase))
+                    if (_env.GetWindowProcessName(hWnd).Equals(record.ProcessName, StringComparison.OrdinalIgnoreCase))
                     {
-                        foundHwnd = hWnd; // Found the match!
-                        return false; // Stop EnumWindows early
+                        return hWnd;
                     }
                 }
-                catch { }
-
-                return true; // Keep looking
             }
 
-            Program.EnumWindows(MatchWindowCallback, IntPtr.Zero);
-            return foundHwnd;
+            return 0; // Not found
         }
 
         // =====================================================================
         // 2. BOUNDARY CLAMPING (ADR-0003)
         // =====================================================================
-        public static Program.RECT ClampToNearestMonitor(Program.RECT targetRect)
+        private WindowRect ClampToNearestMonitor(WindowRect targetRect)
         {
-            // Find the nearest monitor to where the window *wants* to be
-            IntPtr hMonitor = MonitorFromRect(ref targetRect, MONITOR_DEFAULTTONEAREST);
-            if (hMonitor == IntPtr.Zero) return targetRect; // Safety fallback
+            WindowRect workArea = _env.GetWorkAreaForRect(targetRect);
 
-            MONITORINFO monitorInfo = new MONITORINFO();
-            monitorInfo.cbSize = Marshal.SizeOf<MONITORINFO>();
-
-            if (GetMonitorInfo(hMonitor, ref monitorInfo))
+            // If work area is identical to target, no clamping is needed.
+            // (Or if the adapter failed and returned the original rect).
+            if (workArea.Left == targetRect.Left && workArea.Right == targetRect.Right && 
+                workArea.Top == targetRect.Top && workArea.Bottom == targetRect.Bottom)
             {
-                Program.RECT workArea = monitorInfo.rcWork;
-                int width = targetRect.Right - targetRect.Left;
-                int height = targetRect.Bottom - targetRect.Top;
+                return targetRect;
+            }
 
-                // Check if the rectangle is entirely outside the visible working area
-                bool isOutsideLeft = targetRect.Right <= workArea.Left;
-                bool isOutsideRight = targetRect.Left >= workArea.Right;
-                bool isOutsideTop = targetRect.Bottom <= workArea.Top;
-                bool isOutsideBottom = targetRect.Top >= workArea.Bottom;
+            int width = targetRect.Width;
+            int height = targetRect.Height;
 
-                if (isOutsideLeft || isOutsideRight || isOutsideTop || isOutsideBottom)
-                {
-                    // Shift the X and Y coordinates inside the visible boundaries
-                    targetRect.Left = Math.Max(workArea.Left, Math.Min(targetRect.Left, workArea.Right - width));
-                    targetRect.Top = Math.Max(workArea.Top, Math.Min(targetRect.Top, workArea.Bottom - height));
-                    
-                    targetRect.Right = targetRect.Left + width;
-                    targetRect.Bottom = targetRect.Top + height;
-                }
+            // Check if the rectangle is entirely outside the visible working area
+            bool isOutsideLeft = targetRect.Right <= workArea.Left;
+            bool isOutsideRight = targetRect.Left >= workArea.Right;
+            bool isOutsideTop = targetRect.Bottom <= workArea.Top;
+            bool isOutsideBottom = targetRect.Top >= workArea.Bottom;
+
+            if (isOutsideLeft || isOutsideRight || isOutsideTop || isOutsideBottom)
+            {
+                // Shift the X and Y coordinates inside the visible boundaries
+                int newLeft = Math.Max(workArea.Left, Math.Min(targetRect.Left, workArea.Right - width));
+                int newTop = Math.Max(workArea.Top, Math.Min(targetRect.Top, workArea.Bottom - height));
+                
+                return new WindowRect(newLeft, newTop, newLeft + width, newTop + height);
             }
 
             return targetRect;
