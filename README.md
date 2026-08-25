@@ -87,4 +87,5 @@ The core MVP is complete. We are exploring stable offshoots that utilize the rob
 
 *   **[vdtree: Verbose Window Inspector](https://github.com/amirf147/vdtree)**: A read-only CLI tool that provides deep, structured metadata about the Windows desktop layer in a human-readable tree format.
 *   **[Caster UIA Context Engine](docs/research_ui_automation_vs_win32.md)**: A micro-service utilizing Microsoft UI Automation (UIA) to track keyboard focus inside specific application panes to trigger ultra fine-grained, context-aware speech grammars for the Caster accessibility toolkit.
-*   **Phase 5 (Deferred): Multi-Monitor Topology Mapping:** Deep hardware mapping to perfectly restore coordinates across complex docking/undocking scenarios (currently handled safely, but simply, via Boundary Clamping).
+*   **Phase 5 (Deferred): Multi-Monitor Topology Mapping & Per-Monitor V2 DPI Scaling:** Deep hardware mapping and [Per-Monitor V2 DPI Virtualization fix](docs/research_dpi_awareness_and_multi_monitor_scaling.md) to perfectly restore coordinates across mixed-DPI displays and docking scenarios.
+
