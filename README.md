@@ -17,7 +17,7 @@
 To use `winst` globally from any terminal, you should publish it as a self-contained executable:
 ```bash
 # Build a standalone .exe
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish WinStasis -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 
 # The resulting winst.exe will be output to:
 # WinStasis\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\
