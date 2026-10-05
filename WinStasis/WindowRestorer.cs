@@ -32,22 +32,90 @@ namespace WinStasis
 
             Console.WriteLine($"Restoring {(targetId.HasValue ? "target " + targetId : "all windows")} from profile '{profile.ProfileName}'...\n");
 
+            var visibleWindows = _env.GetVisibleWindows().ToList();
+            var claimedHwnds = new HashSet<long>();
+            var windowAssignments = new Dictionary<int, long>(); // TargetId -> hWnd
+
+            // =====================================================================
+            // PASS 1: FAST-PATH HWND & EXACT TITLE MATCH
+            // =====================================================================
+            foreach (var win in windowsToRestore)
+            {
+                long savedHwnd = win.Hwnd;
+
+                // 1. Fast Path: Check if saved HWND is still valid and same process
+                if (savedHwnd != 0 && !claimedHwnds.Contains(savedHwnd) && 
+                    _env.IsWindowAlive(savedHwnd) && _env.IsWindowVisible(savedHwnd))
+                {
+                    if (_env.GetWindowProcessName(savedHwnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        claimedHwnds.Add(savedHwnd);
+                        windowAssignments[win.TargetId] = savedHwnd;
+                        continue;
+                    }
+                }
+
+                // 2. Exact Match on Process Name + Window Title
+                foreach (long hWnd in visibleWindows)
+                {
+                    if (!claimedHwnds.Contains(hWnd))
+                    {
+                        if (_env.GetWindowProcessName(hWnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase) &&
+                            _env.GetWindowTitle(hWnd) == win.WindowTitle)
+                        {
+                            claimedHwnds.Add(hWnd);
+                            windowAssignments[win.TargetId] = hWnd;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // =====================================================================
+            // PASS 2: PROCESS FALLBACK (Title changed across reboots/updates)
+            // =====================================================================
+            foreach (var win in windowsToRestore)
+            {
+                if (windowAssignments.ContainsKey(win.TargetId))
+                    continue;
+
+                foreach (long hWnd in visibleWindows)
+                {
+                    if (!claimedHwnds.Contains(hWnd))
+                    {
+                        // SAFETY GUARD: Require a non-empty title so we don't accidentally
+                        // match the Windows Taskbar (Shell_TrayWnd) or hidden helper windows.
+                        string liveTitle = _env.GetWindowTitle(hWnd);
+                        if (string.IsNullOrWhiteSpace(liveTitle))
+                            continue;
+
+                        if (_env.GetWindowProcessName(hWnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            claimedHwnds.Add(hWnd);
+                            windowAssignments[win.TargetId] = hWnd;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // =====================================================================
+            // EXECUTE WINDOW PLACEMENT & WORKSPACE ASSIGNMENT
+            // =====================================================================
             int successCount = 0;
             int notFoundCount = 0;
 
             foreach (var win in windowsToRestore)
             {
-                long hWnd = FindWindow(win);
-
-                if (hWnd == 0)
+                if (!windowAssignments.TryGetValue(win.TargetId, out long hWnd) || hWnd == 0)
                 {
                     Console.WriteLine($"[Not Found] [{win.TargetId:D2}] {win.ProcessName}.exe - \"{win.WindowTitle}\"");
-                    Console.WriteLine($"            -> Application is closed or title changed. (Skipped per Opaque Window Rule)");
+                    Console.WriteLine($"            -> Application is closed or no available window found.");
                     notFoundCount++;
                     continue;
                 }
 
-                // 2. Workspace Assignment
+                // Workspace Assignment
                 if (win.IsPinned)
                 {
                     _env.PinWindow(hWnd);
@@ -65,7 +133,7 @@ namespace WinStasis
                     }
                 }
 
-                // 3. Boundary Clamping
+                // Boundary Clamping
                 WindowRect targetRect = new WindowRect(
                     win.X, 
                     win.Y, 
@@ -74,7 +142,7 @@ namespace WinStasis
                 );
                 targetRect = ClampToNearestMonitor(targetRect);
 
-                // 4. Placement & Contextual Override
+                // Placement & Contextual Override
                 WindowPlacement placement = _env.GetWindowPlacement(hWnd);
                 placement.NormalPosition = targetRect;
                 placement.ShowCmd = win.ShowCmd;
@@ -102,46 +170,12 @@ namespace WinStasis
         }
 
         // =====================================================================
-        // 1. HYBRID MATCHING (ADR-0001)
-        // =====================================================================
-        private long FindWindow(WindowRecord record)
-        {
-            long savedHwnd = record.Hwnd;
-
-            // Fast Path: Check if the saved HWND still exists and is visible
-            if (_env.IsWindowAlive(savedHwnd) && _env.IsWindowVisible(savedHwnd))
-            {
-                // Verify process name hasn't changed (recycled HWND check)
-                if (_env.GetWindowProcessName(savedHwnd).Equals(record.ProcessName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return savedHwnd; // 100% Match!
-                }
-            }
-
-            // Fallback Path: First-Come, First-Served match on Process Name + Window Title
-            foreach (long hWnd in _env.GetVisibleWindows())
-            {
-                if (_env.GetWindowTitle(hWnd) == record.WindowTitle)
-                {
-                    if (_env.GetWindowProcessName(hWnd).Equals(record.ProcessName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return hWnd;
-                    }
-                }
-            }
-
-            return 0; // Not found
-        }
-
-        // =====================================================================
-        // 2. BOUNDARY CLAMPING (ADR-0003)
+        // BOUNDARY CLAMPING (ADR-0003)
         // =====================================================================
         private WindowRect ClampToNearestMonitor(WindowRect targetRect)
         {
             WindowRect workArea = _env.GetWorkAreaForRect(targetRect);
 
-            // If work area is identical to target, no clamping is needed.
-            // (Or if the adapter failed and returned the original rect).
             if (workArea.Left == targetRect.Left && workArea.Right == targetRect.Right && 
                 workArea.Top == targetRect.Top && workArea.Bottom == targetRect.Bottom)
             {
@@ -151,7 +185,6 @@ namespace WinStasis
             int width = targetRect.Width;
             int height = targetRect.Height;
 
-            // Check if the rectangle is entirely outside the visible working area
             bool isOutsideLeft = targetRect.Right <= workArea.Left;
             bool isOutsideRight = targetRect.Left >= workArea.Right;
             bool isOutsideTop = targetRect.Bottom <= workArea.Top;
@@ -159,7 +192,6 @@ namespace WinStasis
 
             if (isOutsideLeft || isOutsideRight || isOutsideTop || isOutsideBottom)
             {
-                // Shift the X and Y coordinates inside the visible boundaries
                 int newLeft = Math.Max(workArea.Left, Math.Min(targetRect.Left, workArea.Right - width));
                 int newTop = Math.Max(workArea.Top, Math.Min(targetRect.Top, workArea.Bottom - height));
                 
