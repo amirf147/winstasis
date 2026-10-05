@@ -12,8 +12,8 @@
 * **STA (Single-Threaded Apartment):** The required thread state for C# applications interacting with Windows Desktop UI COM components.
 * **Workspace Fallback:** If a saved Virtual Desktop GUID no longer exists, or if the undocumented Windows API fails due to an OS update, the window is salvaged and placed on the currently active workspace.
 * **Intra-Session Drift:** When windows are moved or workspaces are closed *without* restarting the applications. HWNDs remain valid during this drift.
-* **Hybrid Matching:** The two-step process of finding a window during restore (1. HWND, 2. Process + Title).
-* **Ambiguous Match:** When two windows share the exact same Process Name and Title. Resolved via First-Come, First-Served.
+* **Two-Pass Hybrid Matching:** The resolution pipeline used during restore. Pass 1 validates active `HWND`s and matches exact `Process Name` + `Window Title`. Pass 2 provides a fallback matching unallocated windows by `Process Name` alone (filtering empty titles to protect system surfaces like `Shell_TrayWnd`).
+* **Exclusive Allocation (`claimedHwnds`):** A transient in-memory registry of claimed window handles during a restore pass. Prevents multiple profile records from binding to or moving the same physical OS window.
 * **Execution Model (On-Demand):** `winst` is a manual, point-in-time script.
 * **Boundary Clamping:** If a window's saved coordinates fall outside the currently active monitor bounds (e.g., due to unplugging a display), `winst` will shift the window inside the nearest visible screen edge rather than aborting.
 * **Profile-Driven Storage:** Layouts are saved as explicit, user-named JSON profiles within the standardized Windows AppData directory (`%LOCALAPPDATA%\WinStasis\sessions\`). By default, attempting to save over an existing profile triggers a Safety Prompt, bypassable via a `--force` flag.

@@ -1,6 +1,6 @@
 # 1. Hybrid Window Matching Strategy
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0009](0009-two-pass-window-matching.md)
 
 ## Context
 `winst` needs to reliably identify windows to restore their exact coordinates. 
