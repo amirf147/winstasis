@@ -17,6 +17,7 @@ sessions/*
 [Oo]bj/
 [Ww][Ii][Nn]32/
 [Aa][Rr][Mm]*/
+publish/
 
 # MSBuild structured logs
 *.binlog
