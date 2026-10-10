@@ -83,10 +83,22 @@ namespace WinStasis
                 {
                     if (!claimedHwnds.Contains(hWnd))
                     {
-                        // SAFETY GUARD: Require a non-empty title so we don't accidentally
+                        // SAFETY GUARDS:
+                        // 1. Require a non-empty title so we don't accidentally
                         // match the Windows Taskbar (Shell_TrayWnd) or hidden helper windows.
                         string liveTitle = _env.GetWindowTitle(hWnd);
                         if (string.IsNullOrWhiteSpace(liveTitle))
+                            continue;
+
+                        // 2. Reject internal/floating auxiliary windows if the saved window had a different title
+                        if (!win.WindowTitle.Contains("Floating Window", StringComparison.OrdinalIgnoreCase) &&
+                            liveTitle.Equals("Floating Window", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        // 3. Ensure it is a valid top-level application window
+                        if (!_env.IsAppWindow(hWnd))
                             continue;
 
                         if (_env.GetWindowProcessName(hWnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase))
@@ -144,7 +156,24 @@ namespace WinStasis
 
                 // Placement & Contextual Override
                 WindowPlacement placement = _env.GetWindowPlacement(hWnd);
-                placement.NormalPosition = targetRect;
+
+                // Detect corrupted minimized coordinates from pre-fix profiles (e.g. -32000, -32000 or placeholder icon box)
+                bool isCorruptedMinimizedRect = win.X <= -10000 || win.Y <= -10000 || 
+                    (win.ShowCmd == 2 && (win.Width < 200 || win.Height < 100));
+
+                if (!isCorruptedMinimizedRect)
+                {
+                    placement.NormalPosition = targetRect;
+                }
+                else
+                {
+                    // Preserve existing live NormalPosition if valid, otherwise clamp
+                    if (placement.NormalPosition.Width < 200 || placement.NormalPosition.Height < 100)
+                    {
+                        placement.NormalPosition = targetRect;
+                    }
+                }
+
                 placement.ShowCmd = win.ShowCmd;
 
                 // ADR-0004: Contextual State Override

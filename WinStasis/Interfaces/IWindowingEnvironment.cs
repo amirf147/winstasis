@@ -11,6 +11,7 @@ namespace WinStasis.Interfaces
         bool IsWindowVisible(long hwnd);
         string GetWindowTitle(long hwnd);
         string GetWindowProcessName(long hwnd);
+        bool IsAppWindow(long hwnd);
         IEnumerable<long> GetVisibleWindows();
 
         // Virtual Desktop & Pinning

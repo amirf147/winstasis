@@ -43,12 +43,32 @@ namespace WinStasis.Adapters
             }
         }
 
+        public bool IsAppWindow(long hwnd)
+        {
+            IntPtr hWnd = (IntPtr)hwnd;
+            if (!IsWindow(hWnd) || !IsWindowVisible(hWnd))
+                return false;
+
+            long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+            bool isToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
+            bool isAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
+
+            if (isToolWindow && !isAppWindow)
+                return false;
+
+            IntPtr owner = GetWindow(hWnd, GW_OWNER);
+            if (owner != IntPtr.Zero && !isAppWindow)
+                return false;
+
+            return true;
+        }
+
         public IEnumerable<long> GetVisibleWindows()
         {
             var windows = new List<long>();
             bool EnumCallback(IntPtr hWnd, IntPtr lParam)
             {
-                if (IsWindowVisible(hWnd))
+                if (IsAppWindow(hWnd.ToInt64()))
                 {
                     windows.Add(hWnd.ToInt64());
                 }
@@ -136,6 +156,27 @@ namespace WinStasis.Adapters
         // =====================================================================
 
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+        {
+            if (IntPtr.Size == 8)
+                return GetWindowLongPtr64(hWnd, nIndex);
+            return new IntPtr(GetWindowLong32(hWnd, nIndex));
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        private const int GWL_EXSTYLE = -20;
+        private const uint GW_OWNER = 4;
+        private const long WS_EX_TOOLWINDOW = 0x00000080L;
+        private const long WS_EX_APPWINDOW = 0x00040000L;
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

@@ -41,6 +41,27 @@ namespace WinStasis
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        public static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+        {
+            if (IntPtr.Size == 8)
+                return GetWindowLongPtr64(hWnd, nIndex);
+            return new IntPtr(GetWindowLong32(hWnd, nIndex));
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        public const int GWL_EXSTYLE = -20;
+        public const uint GW_OWNER = 4;
+        public const long WS_EX_TOOLWINDOW = 0x00000080L;
+        public const long WS_EX_APPWINDOW = 0x00040000L;
+
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT
         {
@@ -154,6 +175,16 @@ namespace WinStasis
 
                 if (string.IsNullOrEmpty(windowTitle)) return true;
 
+                // Filter out tool windows (floating toolbars, palettes) unless marked as app window
+                long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+                bool isToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
+                bool isAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
+                if (isToolWindow && !isAppWindow) return true;
+
+                // Filter out owned secondary windows (e.g. popups, floating host panes)
+                IntPtr owner = GetWindow(hWnd, GW_OWNER);
+                if (owner != IntPtr.Zero && !isAppWindow) return true;
+
                 _ = GetWindowThreadProcessId(hWnd, out uint processId);
                 string processName = "Unknown";
                 try
@@ -170,6 +201,33 @@ namespace WinStasis
                 WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
                 GetWindowPlacement(hWnd, ref placement);
 
+                // Use rcNormalPosition for restored geometry.
+                // For minimized windows (showCmd == 2), GetWindowRect returns (-32000, -32000) with placeholder icon dimensions.
+                int x, y, width, height;
+                if (placement.showCmd == 2 || placement.showCmd == 3)
+                {
+                    x = placement.rcNormalPosition.Left;
+                    y = placement.rcNormalPosition.Top;
+                    width = placement.rcNormalPosition.Right - placement.rcNormalPosition.Left;
+                    height = placement.rcNormalPosition.Bottom - placement.rcNormalPosition.Top;
+                }
+                else if (placement.rcNormalPosition.Right > placement.rcNormalPosition.Left && placement.rcNormalPosition.Bottom > placement.rcNormalPosition.Top)
+                {
+                    x = placement.rcNormalPosition.Left;
+                    y = placement.rcNormalPosition.Top;
+                    width = placement.rcNormalPosition.Right - placement.rcNormalPosition.Left;
+                    height = placement.rcNormalPosition.Bottom - placement.rcNormalPosition.Top;
+                }
+                else
+                {
+                    x = rect.Left;
+                    y = rect.Top;
+                    width = rect.Right - rect.Left;
+                    height = rect.Bottom - rect.Top;
+                }
+
+                if (width <= 0 || height <= 0) return true;
+
                 Guid desktopId = desktopHelper.GetWindowDesktopId(hWnd);
                 bool isPinned = desktopHelper.IsWindowPinned(hWnd);
 
@@ -179,10 +237,10 @@ namespace WinStasis
                     Hwnd = hWnd.ToInt64(),
                     ProcessName = processName,
                     WindowTitle = windowTitle,
-                    X = rect.Left,
-                    Y = rect.Top,
-                    Width = rect.Right - rect.Left,
-                    Height = rect.Bottom - rect.Top,
+                    X = x,
+                    Y = y,
+                    Width = width,
+                    Height = height,
                     ShowCmd = placement.showCmd,
                     DesktopId = desktopId,
                     IsPinned = isPinned
