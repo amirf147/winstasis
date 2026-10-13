@@ -14,80 +14,7 @@ namespace WinStasis
 {
     class Program
     {
-        // =====================================================================
-        // WIN32 API IMPORTS (P/Invoke)
-        // =====================================================================
-        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool IsWindowVisible(IntPtr hWnd);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
-        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
-
-        public static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
-        {
-            if (IntPtr.Size == 8)
-                return GetWindowLongPtr64(hWnd, nIndex);
-            return new IntPtr(GetWindowLong32(hWnd, nIndex));
-        }
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
-
-        public const int GWL_EXSTYLE = -20;
-        public const uint GW_OWNER = 4;
-        public const long WS_EX_TOOLWINDOW = 0x00000080L;
-        public const long WS_EX_APPWINDOW = 0x00040000L;
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct RECT
-        {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct POINT
-        {
-            public int X;
-            public int Y;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct WINDOWPLACEMENT
-        {
-            public int length;
-            public int flags;
-            public int showCmd;
-            public POINT ptMinPosition;
-            public POINT ptMaxPosition;
-            public RECT rcNormalPosition;
-        }
 
         // =====================================================================
         // CLI ENTRY POINT
@@ -163,70 +90,27 @@ namespace WinStasis
 
             var capturedWindows = new List<WindowRecord>();
             var desktopHelper = new VirtualDesktopHelper();
+            var env = new WindowsEnvironmentAdapter();
             int currentTargetId = 1;
 
-            bool CaptureWindowCallback(IntPtr hWnd, IntPtr lParam)
+            foreach (long hwndLong in env.GetVisibleWindows())
             {
-                if (!IsWindowVisible(hWnd)) return true;
+                IntPtr hWnd = (IntPtr)hwndLong;
+                string windowTitle = env.GetWindowTitle(hwndLong).Trim();
+                if (string.IsNullOrEmpty(windowTitle)) continue;
 
-                StringBuilder titleBuilder = new(256);
-                _ = GetWindowText(hWnd, titleBuilder, 256);
-                string windowTitle = titleBuilder.ToString().Trim();
+                string processName = env.GetWindowProcessName(hwndLong);
+                if (string.IsNullOrEmpty(processName)) processName = "Unknown";
 
-                if (string.IsNullOrEmpty(windowTitle)) return true;
+                if (processName == "TextInputHost" || processName == "ApplicationFrameHost") continue;
 
-                // Filter out tool windows (floating toolbars, palettes) unless marked as app window
-                long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
-                bool isToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
-                bool isAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
-                if (isToolWindow && !isAppWindow) return true;
+                WindowPlacement placement = env.GetWindowPlacement(hwndLong);
+                int x = placement.NormalPosition.Left;
+                int y = placement.NormalPosition.Top;
+                int width = placement.NormalPosition.Width;
+                int height = placement.NormalPosition.Height;
 
-                // Filter out owned secondary windows (e.g. popups, floating host panes)
-                IntPtr owner = GetWindow(hWnd, GW_OWNER);
-                if (owner != IntPtr.Zero && !isAppWindow) return true;
-
-                _ = GetWindowThreadProcessId(hWnd, out uint processId);
-                string processName = "Unknown";
-                try
-                {
-                    using Process proc = Process.GetProcessById((int)processId);
-                    processName = proc.ProcessName;
-                }
-                catch (Exception) { /* Ignore access denied processes */ }
-
-                if (processName == "TextInputHost" || processName == "ApplicationFrameHost") return true;
-
-                GetWindowRect(hWnd, out RECT rect);
-                
-                WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
-                GetWindowPlacement(hWnd, ref placement);
-
-                // Use rcNormalPosition for restored geometry.
-                // For minimized windows (showCmd == 2), GetWindowRect returns (-32000, -32000) with placeholder icon dimensions.
-                int x, y, width, height;
-                if (placement.showCmd == 2 || placement.showCmd == 3)
-                {
-                    x = placement.rcNormalPosition.Left;
-                    y = placement.rcNormalPosition.Top;
-                    width = placement.rcNormalPosition.Right - placement.rcNormalPosition.Left;
-                    height = placement.rcNormalPosition.Bottom - placement.rcNormalPosition.Top;
-                }
-                else if (placement.rcNormalPosition.Right > placement.rcNormalPosition.Left && placement.rcNormalPosition.Bottom > placement.rcNormalPosition.Top)
-                {
-                    x = placement.rcNormalPosition.Left;
-                    y = placement.rcNormalPosition.Top;
-                    width = placement.rcNormalPosition.Right - placement.rcNormalPosition.Left;
-                    height = placement.rcNormalPosition.Bottom - placement.rcNormalPosition.Top;
-                }
-                else
-                {
-                    x = rect.Left;
-                    y = rect.Top;
-                    width = rect.Right - rect.Left;
-                    height = rect.Bottom - rect.Top;
-                }
-
-                if (width <= 0 || height <= 0) return true;
+                if (width <= 0 || height <= 0) continue;
 
                 Guid desktopId = desktopHelper.GetWindowDesktopId(hWnd);
                 bool isPinned = desktopHelper.IsWindowPinned(hWnd);
@@ -234,22 +118,18 @@ namespace WinStasis
                 capturedWindows.Add(new WindowRecord
                 {
                     TargetId = currentTargetId++,
-                    Hwnd = hWnd.ToInt64(),
+                    Hwnd = hwndLong,
                     ProcessName = processName,
                     WindowTitle = windowTitle,
                     X = x,
                     Y = y,
                     Width = width,
                     Height = height,
-                    ShowCmd = placement.showCmd,
+                    ShowCmd = placement.ShowCmd,
                     DesktopId = desktopId,
                     IsPinned = isPinned
                 });
-
-                return true;
             }
-
-            EnumWindows(CaptureWindowCallback, IntPtr.Zero);
 
             var profile = new SessionProfile
             {

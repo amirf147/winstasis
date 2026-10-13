@@ -43,15 +43,19 @@ namespace WinStasis
             {
                 long savedHwnd = win.Hwnd;
 
-                // 1. Fast Path: Check if saved HWND is still valid and same process
+                // 1. Fast Path: Check if saved HWND is still valid and an active application window
                 if (savedHwnd != 0 && !claimedHwnds.Contains(savedHwnd) && 
-                    _env.IsWindowAlive(savedHwnd) && _env.IsWindowVisible(savedHwnd))
+                    _env.IsWindowAlive(savedHwnd) && _env.IsWindowVisible(savedHwnd) && _env.IsAppWindow(savedHwnd))
                 {
                     if (_env.GetWindowProcessName(savedHwnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase))
                     {
-                        claimedHwnds.Add(savedHwnd);
-                        windowAssignments[win.TargetId] = savedHwnd;
-                        continue;
+                        string liveTitle = _env.GetWindowTitle(savedHwnd);
+                        if (string.IsNullOrEmpty(win.WindowTitle) || !string.IsNullOrWhiteSpace(liveTitle))
+                        {
+                            claimedHwnds.Add(savedHwnd);
+                            windowAssignments[win.TargetId] = savedHwnd;
+                            continue;
+                        }
                     }
                 }
 
@@ -90,14 +94,7 @@ namespace WinStasis
                         if (string.IsNullOrWhiteSpace(liveTitle))
                             continue;
 
-                        // 2. Reject internal/floating auxiliary windows if the saved window had a different title
-                        if (!win.WindowTitle.Contains("Floating Window", StringComparison.OrdinalIgnoreCase) &&
-                            liveTitle.Equals("Floating Window", StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-
-                        // 3. Ensure it is a valid top-level application window
+                        // 2. Ensure it is a valid top-level application window
                         if (!_env.IsAppWindow(hWnd))
                             continue;
 

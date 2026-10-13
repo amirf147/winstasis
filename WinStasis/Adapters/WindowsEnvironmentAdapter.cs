@@ -49,15 +49,69 @@ namespace WinStasis.Adapters
             if (!IsWindow(hWnd) || !IsWindowVisible(hWnd))
                 return false;
 
-            long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
-            bool isToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
-            bool isAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
-
-            if (isToolWindow && !isAppWindow)
+            StringBuilder titleBuilder = new(256);
+            GetWindowText(hWnd, titleBuilder, 256);
+            string title = titleBuilder.ToString().Trim();
+            if (string.IsNullOrEmpty(title))
                 return false;
 
-            IntPtr owner = GetWindow(hWnd, GW_OWNER);
-            if (owner != IntPtr.Zero && !isAppWindow)
+            long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+            bool isAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
+
+            if (!isAppWindow)
+            {
+                if ((exStyle & WS_EX_TOOLWINDOW) != 0)
+                    return false;
+
+                if ((exStyle & WS_EX_NOACTIVATE) != 0)
+                    return false;
+
+                IntPtr owner = GetWindow(hWnd, GW_OWNER);
+                if (owner != IntPtr.Zero)
+                    return false;
+
+                IntPtr rootOwner = GetAncestor(hWnd, GA_ROOTOWNER);
+                if (rootOwner != IntPtr.Zero && rootOwner != hWnd)
+                    return false;
+
+                long style = GetWindowLongPtr(hWnd, GWL_STYLE).ToInt64();
+                if ((style & WS_CHILD) != 0)
+                    return false;
+
+                if ((style & WS_POPUP) != 0)
+                {
+                    bool hasCaption = (style & WS_CAPTION) == WS_CAPTION;
+                    bool hasThickFrame = (style & WS_THICKFRAME) != 0;
+                    bool hasMinMax = ((style & WS_MINIMIZEBOX) != 0) || ((style & WS_MAXIMIZEBOX) != 0);
+                    if (!hasCaption && !hasThickFrame && !hasMinMax)
+                        return false;
+                }
+            }
+
+            int cloaked = 0;
+            int hr = DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, out cloaked, sizeof(int));
+            if (hr == 0 && ((cloaked & DWM_CLOAKED_APP) != 0 || (cloaked & DWM_CLOAKED_INHERITED) != 0))
+            {
+                return false;
+            }
+
+            NATIVE_WINDOWPLACEMENT placement = new() { length = Marshal.SizeOf<NATIVE_WINDOWPLACEMENT>() };
+            GetWindowPlacement(hWnd, ref placement);
+
+            int width, height;
+            if (placement.showCmd == 2)
+            {
+                width = placement.rcNormalPosition.Right - placement.rcNormalPosition.Left;
+                height = placement.rcNormalPosition.Bottom - placement.rcNormalPosition.Top;
+            }
+            else
+            {
+                GetWindowRect(hWnd, out NativeRect rect);
+                width = rect.Right - rect.Left;
+                height = rect.Bottom - rect.Top;
+            }
+
+            if (width <= 0 || height <= 0)
                 return false;
 
             return true;
@@ -173,10 +227,35 @@ namespace WinStasis.Adapters
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+        private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
         private const uint GW_OWNER = 4;
+        private const uint GA_ROOTOWNER = 3;
+
+        private const long WS_CHILD = 0x40000000L;
+        private const long WS_POPUP = 0x80000000L;
+        private const long WS_CAPTION = 0x00C00000L;
+        private const long WS_THICKFRAME = 0x00040000L;
+        private const long WS_MINIMIZEBOX = 0x00020000L;
+        private const long WS_MAXIMIZEBOX = 0x00010000L;
+
         private const long WS_EX_TOOLWINDOW = 0x00000080L;
         private const long WS_EX_APPWINDOW = 0x00040000L;
+        private const long WS_EX_NOACTIVATE = 0x08000000L;
+
+        private const int DWMWA_CLOAKED = 14;
+        private const int DWM_CLOAKED_APP = 0x00000001;
+        private const int DWM_CLOAKED_INHERITED = 0x00000004;
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

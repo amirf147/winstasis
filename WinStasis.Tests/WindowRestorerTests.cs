@@ -372,16 +372,16 @@ namespace WinStasis.Tests
         }
 
         [Fact]
-        public void Pass2_RejectsLiteralFloatingWindowTitle_WhenSavedTitleDiffers()
+        public void Pass1_RejectsHwnd_WhenWindowIsNotAppWindow()
         {
             var env = new FakeWindowingEnvironment();
-            // A window titled literally "Floating Window" exists (even if IsApp was somehow true)
+            // Window exists with same process name and same HWND, but is a non-app tool/overlay window
             env.Windows[7001] = new FakeWindowingEnvironment.WindowState
             {
                 Hwnd = 7001,
-                ProcessName = "chrome",
+                ProcessName = "max",
                 Title = "Floating Window",
-                IsApp = true
+                IsApp = false // E.g. push-to-talk volume pill overlay
             };
 
             var profile = new SessionProfile
@@ -392,9 +392,9 @@ namespace WinStasis.Tests
                     new WindowRecord
                     {
                         TargetId = 1,
-                        Hwnd = 9999, // Stale HWND
-                        ProcessName = "chrome",
-                        WindowTitle = "Work Mail - Google Chrome",
+                        Hwnd = 7001, // Points to the non-app window handle
+                        ProcessName = "max",
+                        WindowTitle = "Brain MAX",
                         X = 100,
                         Y = 100,
                         Width = 1000,
@@ -407,7 +407,70 @@ namespace WinStasis.Tests
             var restorer = new WindowRestorer(env);
             restorer.Restore(profile);
 
-            // Must NOT bind the browser record to "Floating Window"
+            // Pass 1 must NOT claim 7001 because it is not an application window
+            Assert.False(env.AppliedPlacements.ContainsKey(7001));
+        }
+
+        [Fact]
+        public void Restore_IgnoresLegacyAuxiliaryWidgetRecords()
+        {
+            var env = new FakeWindowingEnvironment();
+            // A legitimate running app window
+            env.Windows[7002] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 7002,
+                ProcessName = "max",
+                Title = "Brain MAX",
+                IsApp = true
+            };
+            // An auxiliary tool/overlay window running alongside it
+            env.Windows[7001] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 7001,
+                ProcessName = "max",
+                Title = "Floating Window",
+                IsApp = false
+            };
+
+            // Legacy profile containing both the main application record and the auxiliary floating pill record
+            var profile = new SessionProfile
+            {
+                ProfileName = "test",
+                Windows = new[]
+                {
+                    new WindowRecord
+                    {
+                        TargetId = 1,
+                        Hwnd = 7002,
+                        ProcessName = "max",
+                        WindowTitle = "Brain MAX",
+                        X = 100,
+                        Y = 100,
+                        Width = 1200,
+                        Height = 800,
+                        ShowCmd = 1
+                    },
+                    new WindowRecord
+                    {
+                        TargetId = 2,
+                        Hwnd = 7001,
+                        ProcessName = "max",
+                        WindowTitle = "Floating Window",
+                        X = 944,
+                        Y = 1148,
+                        Width = 32,
+                        Height = 20,
+                        ShowCmd = 1
+                    }
+                }
+            };
+
+            var restorer = new WindowRestorer(env);
+            restorer.Restore(profile);
+
+            // Main app 7002 is restored successfully
+            Assert.True(env.AppliedPlacements.ContainsKey(7002));
+            // Auxiliary tool/overlay 7001 is NEVER touched or placed
             Assert.False(env.AppliedPlacements.ContainsKey(7001));
         }
 
