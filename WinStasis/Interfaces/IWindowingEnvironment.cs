@@ -15,6 +15,8 @@ namespace WinStasis.Interfaces
         IEnumerable<long> GetVisibleWindows();
 
         // Virtual Desktop & Pinning
+        Guid GetWindowDesktopId(long hwnd);
+        int GetDesktopNumber(Guid desktopId);
         bool IsWindowPinned(long hwnd);
         void PinWindow(long hwnd);
         void UnpinWindow(long hwnd);
@@ -24,5 +26,10 @@ namespace WinStasis.Interfaces
         WindowRect GetWorkAreaForRect(WindowRect targetRect);
         WindowPlacement GetWindowPlacement(long hwnd);
         bool SetWindowPlacement(long hwnd, WindowPlacement placement);
+        WindowRect GetWindowBounds(long hwnd);
+        WindowRect GetVisibleWindowBounds(long hwnd);
+        WindowFrameMargins GetFrameMargins(long hwnd);
+        bool SetWindowPosition(long hwnd, WindowRect win32Rect);
+        WindowDiagnostics GetWindowDiagnostics(long hwnd);
     }
 }

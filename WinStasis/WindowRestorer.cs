@@ -18,7 +18,7 @@ namespace WinStasis
             _env = env;
         }
 
-        public void Restore(SessionProfile profile, int? targetId = null)
+        public void Restore(SessionProfile profile, int? targetId = null, bool verbose = false)
         {
             var windowsToRestore = targetId.HasValue 
                 ? profile.Windows.Where(w => w.TargetId == targetId.Value).ToList() 
@@ -35,6 +35,7 @@ namespace WinStasis
             var visibleWindows = _env.GetVisibleWindows().ToList();
             var claimedHwnds = new HashSet<long>();
             var windowAssignments = new Dictionary<int, long>(); // TargetId -> hWnd
+            var matchReasons = new Dictionary<int, string>(); // TargetId -> Reason
 
             // =====================================================================
             // PASS 1: FAST-PATH HWND & EXACT TITLE MATCH
@@ -54,6 +55,7 @@ namespace WinStasis
                         {
                             claimedHwnds.Add(savedHwnd);
                             windowAssignments[win.TargetId] = savedHwnd;
+                            matchReasons[win.TargetId] = "Pass 1 (Fast-Path HWND)";
                             continue;
                         }
                     }
@@ -69,6 +71,7 @@ namespace WinStasis
                         {
                             claimedHwnds.Add(hWnd);
                             windowAssignments[win.TargetId] = hWnd;
+                            matchReasons[win.TargetId] = "Pass 1 (Exact Process + Title)";
                             break;
                         }
                     }
@@ -102,6 +105,7 @@ namespace WinStasis
                         {
                             claimedHwnds.Add(hWnd);
                             windowAssignments[win.TargetId] = hWnd;
+                            matchReasons[win.TargetId] = "Pass 2 (Process Fallback)";
                             break;
                         }
                     }
@@ -124,6 +128,8 @@ namespace WinStasis
                     continue;
                 }
 
+                WindowDiagnostics? preDiag = verbose ? _env.GetWindowDiagnostics(hWnd) : null;
+
                 // Workspace Assignment
                 if (win.IsPinned)
                 {
@@ -143,13 +149,13 @@ namespace WinStasis
                 }
 
                 // Boundary Clamping
-                WindowRect targetRect = new WindowRect(
+                WindowRect rawTargetRect = new WindowRect(
                     win.X, 
                     win.Y, 
                     win.X + win.Width, 
                     win.Y + win.Height
                 );
-                targetRect = ClampToNearestMonitor(targetRect);
+                WindowRect targetRect = ClampToNearestMonitor(rawTargetRect);
 
                 // Placement & Contextual Override
                 WindowPlacement placement = _env.GetWindowPlacement(hWnd);
@@ -179,7 +185,24 @@ namespace WinStasis
                     placement.ShowCmd = 1;
                 }
 
+                // Step 1: SetWindowPlacement
                 bool result = _env.SetWindowPlacement(hWnd, placement);
+
+                WindowFrameMargins margins = default;
+                WindowRect compensatedWin32Rect = default;
+
+                // Steps 2 & 3: DWM Frame Margin Expansion & SetWindowPosition
+                if (result && win.ShowCmd == 1 && !isCorruptedMinimizedRect)
+                {
+                    margins = _env.GetFrameMargins(hWnd);
+                    compensatedWin32Rect = new WindowRect(
+                        targetRect.Left - margins.Left,
+                        targetRect.Top - margins.Top,
+                        targetRect.Right + margins.Right,
+                        targetRect.Bottom + margins.Bottom
+                    );
+                    _env.SetWindowPosition(hWnd, compensatedWin32Rect);
+                }
 
                 if (result)
                 {
@@ -189,6 +212,20 @@ namespace WinStasis
                 else
                 {
                     Console.WriteLine($"[Failed]    [{win.TargetId:D2}] {win.ProcessName}.exe");
+                }
+
+                if (verbose && preDiag != null)
+                {
+                    string matchReason = matchReasons.TryGetValue(win.TargetId, out var reason) ? reason : "Unknown";
+                    Console.WriteLine($"    Match: {matchReason} -> HWND 0x{hWnd:X} (Class: \"{preDiag.ClassName}\", Title: \"{_env.GetWindowTitle(hWnd)}\")");
+                    Console.WriteLine($"    Styles: Style=0x{preDiag.Style:X8}, ExStyle=0x{preDiag.ExStyle:X8}");
+                    Console.WriteLine($"    Pre-Restore Bounds: Win32=({preDiag.RawWin32Rect.Left},{preDiag.RawWin32Rect.Top} {preDiag.RawWin32Rect.Width}x{preDiag.RawWin32Rect.Height}) | DWM=({preDiag.VisibleDwmRect.Left},{preDiag.VisibleDwmRect.Top} {preDiag.VisibleDwmRect.Width}x{preDiag.VisibleDwmRect.Height})");
+                    Console.WriteLine($"    Target Clamping: Saved=({rawTargetRect.Left},{rawTargetRect.Top} {rawTargetRect.Width}x{rawTargetRect.Height}) -> Clamped=({targetRect.Left},{targetRect.Top} {targetRect.Width}x{targetRect.Height})");
+
+                    if (win.ShowCmd == 1 && !isCorruptedMinimizedRect)
+                    {
+                        Console.WriteLine($"    DWM Compensation: Margins(L={margins.Left}, T={margins.Top}, R={margins.Right}, B={margins.Bottom}) -> Applied Win32=({compensatedWin32Rect.Left},{compensatedWin32Rect.Top} {compensatedWin32Rect.Width}x{compensatedWin32Rect.Height})");
+                    }
                 }
             }
 
@@ -202,25 +239,16 @@ namespace WinStasis
         {
             WindowRect workArea = _env.GetWorkAreaForRect(targetRect);
 
-            if (workArea.Left == targetRect.Left && workArea.Right == targetRect.Right && 
-                workArea.Top == targetRect.Top && workArea.Bottom == targetRect.Bottom)
-            {
+            if (workArea.Width <= 0 || workArea.Height <= 0)
                 return targetRect;
-            }
 
-            int width = targetRect.Width;
-            int height = targetRect.Height;
-
-            bool isOutsideLeft = targetRect.Right <= workArea.Left;
-            bool isOutsideRight = targetRect.Left >= workArea.Right;
-            bool isOutsideTop = targetRect.Bottom <= workArea.Top;
-            bool isOutsideBottom = targetRect.Top >= workArea.Bottom;
-
-            if (isOutsideLeft || isOutsideRight || isOutsideTop || isOutsideBottom)
+            if (targetRect.Left < workArea.Left || targetRect.Right > workArea.Right ||
+                targetRect.Top < workArea.Top || targetRect.Bottom > workArea.Bottom)
             {
-                int newLeft = Math.Max(workArea.Left, Math.Min(targetRect.Left, workArea.Right - width));
-                int newTop = Math.Max(workArea.Top, Math.Min(targetRect.Top, workArea.Bottom - height));
-                
+                int width = Math.Min(targetRect.Width, workArea.Width);
+                int height = Math.Min(targetRect.Height, workArea.Height);
+                int newLeft = Math.Clamp(targetRect.Left, workArea.Left, workArea.Right - width);
+                int newTop = Math.Clamp(targetRect.Top, workArea.Top, workArea.Bottom - height);
                 return new WindowRect(newLeft, newTop, newLeft + width, newTop + height);
             }
 

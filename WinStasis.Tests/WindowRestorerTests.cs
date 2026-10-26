@@ -18,6 +18,9 @@ namespace WinStasis.Tests
             public bool IsApp { get; set; } = true;
             public string Title { get; set; } = string.Empty;
             public string ProcessName { get; set; } = string.Empty;
+            public string ClassName { get; set; } = "TestWindow";
+            public long Style { get; set; } = 0;
+            public long ExStyle { get; set; } = 0;
             public bool IsPinned { get; set; }
             public Guid DesktopId { get; set; } = Guid.Empty;
             public WindowPlacement Placement { get; set; } = new()
@@ -25,11 +28,17 @@ namespace WinStasis.Tests
                 ShowCmd = 1,
                 NormalPosition = new WindowRect(100, 100, 1100, 900)
             };
+            public WindowRect? WindowBounds { get; set; }
+            public WindowRect? VisibleBounds { get; set; }
+            public WindowFrameMargins? FrameMargins { get; set; }
         }
 
         public Dictionary<long, WindowState> Windows { get; } = new();
         public WindowRect WorkArea { get; set; } = new(0, 0, 1920, 1080);
+        public Func<WindowRect, WindowRect>? WorkAreaLookup { get; set; }
         public Dictionary<long, WindowPlacement> AppliedPlacements { get; } = new();
+        public Dictionary<long, WindowRect> AppliedPositions { get; } = new();
+        public Dictionary<Guid, int> DesktopNumbers { get; } = new();
 
         public bool IsWindowAlive(long hwnd) => Windows.TryGetValue(hwnd, out var w) && w.IsAlive;
 
@@ -43,6 +52,12 @@ namespace WinStasis.Tests
 
         public IEnumerable<long> GetVisibleWindows() =>
             Windows.Values.Where(w => w.IsVisible && w.IsApp).Select(w => w.Hwnd);
+
+        public Guid GetWindowDesktopId(long hwnd) =>
+            Windows.TryGetValue(hwnd, out var w) ? w.DesktopId : Guid.Empty;
+
+        public int GetDesktopNumber(Guid desktopId) =>
+            DesktopNumbers.TryGetValue(desktopId, out int num) ? num : 1;
 
         public bool IsWindowPinned(long hwnd) => Windows.TryGetValue(hwnd, out var w) && w.IsPinned;
 
@@ -66,7 +81,7 @@ namespace WinStasis.Tests
             return false;
         }
 
-        public WindowRect GetWorkAreaForRect(WindowRect targetRect) => WorkArea;
+        public WindowRect GetWorkAreaForRect(WindowRect targetRect) => WorkAreaLookup?.Invoke(targetRect) ?? WorkArea;
 
         public WindowPlacement GetWindowPlacement(long hwnd)
         {
@@ -95,6 +110,77 @@ namespace WinStasis.Tests
                 return true;
             }
             return false;
+        }
+
+        public WindowRect GetWindowBounds(long hwnd)
+        {
+            if (Windows.TryGetValue(hwnd, out var w))
+            {
+                return w.WindowBounds ?? w.Placement.NormalPosition;
+            }
+            return new WindowRect(0, 0, 0, 0);
+        }
+
+        public WindowRect GetVisibleWindowBounds(long hwnd)
+        {
+            if (Windows.TryGetValue(hwnd, out var w))
+            {
+                return w.VisibleBounds ?? GetWindowBounds(hwnd);
+            }
+            return new WindowRect(0, 0, 0, 0);
+        }
+
+        public WindowFrameMargins GetFrameMargins(long hwnd)
+        {
+            if (Windows.TryGetValue(hwnd, out var w))
+            {
+                if (w.FrameMargins.HasValue)
+                {
+                    return w.FrameMargins.Value;
+                }
+
+                if (w.WindowBounds.HasValue && w.VisibleBounds.HasValue)
+                {
+                    WindowRect win = w.WindowBounds.Value;
+                    WindowRect dwm = w.VisibleBounds.Value;
+                    return new WindowFrameMargins(
+                        dwm.Left - win.Left,
+                        dwm.Top - win.Top,
+                        win.Right - dwm.Right,
+                        win.Bottom - dwm.Bottom
+                    );
+                }
+            }
+            return new WindowFrameMargins(0, 0, 0, 0);
+        }
+
+        public bool SetWindowPosition(long hwnd, WindowRect win32Rect)
+        {
+            if (Windows.TryGetValue(hwnd, out var w))
+            {
+                w.WindowBounds = win32Rect;
+                AppliedPositions[hwnd] = win32Rect;
+                return true;
+            }
+            return false;
+        }
+
+        public WindowDiagnostics GetWindowDiagnostics(long hwnd)
+        {
+            if (Windows.TryGetValue(hwnd, out var w))
+            {
+                return new WindowDiagnostics
+                {
+                    ClassName = w.ClassName,
+                    Style = w.Style,
+                    ExStyle = w.ExStyle,
+                    RawWin32Rect = GetWindowBounds(hwnd),
+                    VisibleDwmRect = GetVisibleWindowBounds(hwnd),
+                    NormalPositionRect = GetWindowPlacement(hwnd).NormalPosition,
+                    FrameMargins = GetFrameMargins(hwnd)
+                };
+            }
+            return new WindowDiagnostics();
         }
     }
 
@@ -533,6 +619,283 @@ namespace WinStasis.Tests
             Assert.True(env.AppliedPlacements.ContainsKey(8001));
             Assert.True(env.AppliedPlacements.ContainsKey(8002));
             Assert.Equal(2, env.AppliedPlacements.Count);
+        }
+
+        [Fact]
+        public void Restore_SnappedWindow_AppliesDwmFrameMarginCompensation_ViaSetWindowPosition()
+        {
+            var env = new FakeWindowingEnvironment();
+            env.Windows[9101] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 9101,
+                ProcessName = "notepad",
+                Title = "Untitled - Notepad",
+                FrameMargins = new WindowFrameMargins(7, 0, 7, 7),
+                Placement = new WindowPlacement
+                {
+                    ShowCmd = 1,
+                    NormalPosition = new WindowRect(100, 100, 800, 600)
+                }
+            };
+
+            var profile = new SessionProfile
+            {
+                ProfileName = "test-snapped",
+                Windows = new[]
+                {
+                    new WindowRecord
+                    {
+                        TargetId = 1,
+                        Hwnd = 9101,
+                        ProcessName = "notepad",
+                        WindowTitle = "Untitled - Notepad",
+                        X = 0,
+                        Y = 0,
+                        Width = 960,
+                        Height = 1040,
+                        ShowCmd = 1
+                    }
+                }
+            };
+
+            var restorer = new WindowRestorer(env);
+            restorer.Restore(profile);
+
+            Assert.True(env.AppliedPlacements.ContainsKey(9101));
+            Assert.Equal(0, env.AppliedPlacements[9101].NormalPosition.Left);
+            Assert.Equal(0, env.AppliedPlacements[9101].NormalPosition.Top);
+            Assert.Equal(960, env.AppliedPlacements[9101].NormalPosition.Right);
+            Assert.Equal(1040, env.AppliedPlacements[9101].NormalPosition.Bottom);
+
+            Assert.True(env.AppliedPositions.ContainsKey(9101));
+            Assert.Equal(-7, env.AppliedPositions[9101].Left);
+            Assert.Equal(0, env.AppliedPositions[9101].Top);
+            Assert.Equal(967, env.AppliedPositions[9101].Right);
+            Assert.Equal(1047, env.AppliedPositions[9101].Bottom);
+            Assert.Equal(974, env.AppliedPositions[9101].Width);
+            Assert.Equal(1047, env.AppliedPositions[9101].Height);
+        }
+
+        [Fact]
+        public void Restore_AdjacentSnappedWindows_AlignVisibleBordersFlush_WithZeroOverlap()
+        {
+            var env = new FakeWindowingEnvironment();
+            env.WorkArea = new WindowRect(0, 0, 1920, 1040);
+
+            env.Windows[9201] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 9201,
+                ProcessName = "code",
+                Title = "VS Code",
+                FrameMargins = new WindowFrameMargins(7, 0, 7, 7),
+                Placement = new WindowPlacement { ShowCmd = 1, NormalPosition = new WindowRect(50, 50, 800, 600) }
+            };
+
+            env.Windows[9202] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 9202,
+                ProcessName = "terminal",
+                Title = "Terminal",
+                FrameMargins = new WindowFrameMargins(7, 0, 7, 7),
+                Placement = new WindowPlacement { ShowCmd = 1, NormalPosition = new WindowRect(50, 50, 800, 600) }
+            };
+
+            var profile = new SessionProfile
+            {
+                ProfileName = "test-adjacent",
+                Windows = new[]
+                {
+                    new WindowRecord
+                    {
+                        TargetId = 1,
+                        Hwnd = 9201,
+                        ProcessName = "code",
+                        WindowTitle = "VS Code",
+                        X = 0,
+                        Y = 0,
+                        Width = 960,
+                        Height = 1040,
+                        ShowCmd = 1
+                    },
+                    new WindowRecord
+                    {
+                        TargetId = 2,
+                        Hwnd = 9202,
+                        ProcessName = "terminal",
+                        WindowTitle = "Terminal",
+                        X = 960,
+                        Y = 0,
+                        Width = 960,
+                        Height = 1040,
+                        ShowCmd = 1
+                    }
+                }
+            };
+
+            var restorer = new WindowRestorer(env);
+            restorer.Restore(profile);
+
+            Assert.True(env.AppliedPositions.ContainsKey(9201));
+            Assert.True(env.AppliedPositions.ContainsKey(9202));
+
+            var win1 = env.AppliedPositions[9201];
+            var win2 = env.AppliedPositions[9202];
+
+            Assert.Equal(new WindowRect(-7, 0, 967, 1047), win1);
+            Assert.Equal(new WindowRect(953, 0, 1927, 1047), win2);
+
+            int win1VisibleRight = win1.Right - 7;
+            int win2VisibleLeft = win2.Left + 7;
+            Assert.Equal(960, win1VisibleRight);
+            Assert.Equal(960, win2VisibleLeft);
+            Assert.Equal(0, win1VisibleRight - win2VisibleLeft);
+        }
+
+        [Fact]
+        public void Restore_EndToEnd_SnappedUltrawideWindow_RestoresActiveColumn_NotStaleNormalPosition()
+        {
+            var env = new FakeWindowingEnvironment();
+            env.WorkArea = new WindowRect(0, 0, 5120, 1400);
+
+            env.Windows[9301] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 9301,
+                ProcessName = "browser",
+                Title = "Browser - Ultrawide",
+                VisibleBounds = new WindowRect(1706, 0, 3413, 1400),
+                WindowBounds = new WindowRect(1699, 0, 3420, 1407),
+                Placement = new WindowPlacement
+                {
+                    ShowCmd = 1,
+                    NormalPosition = new WindowRect(200, 200, 1400, 1000)
+                }
+            };
+
+            var capturer = new WindowCapturer(env);
+            var profile = capturer.Capture("ultrawide");
+
+            // Simulate window moved away
+            env.Windows[9301].VisibleBounds = new WindowRect(100, 100, 900, 700);
+            env.Windows[9301].WindowBounds = new WindowRect(93, 100, 907, 707);
+
+            var restorer = new WindowRestorer(env);
+            restorer.Restore(profile);
+
+            Assert.True(env.AppliedPlacements.ContainsKey(9301));
+            Assert.Equal(1706, env.AppliedPlacements[9301].NormalPosition.Left);
+            Assert.Equal(1707, env.AppliedPlacements[9301].NormalPosition.Width);
+            Assert.Equal(1400, env.AppliedPlacements[9301].NormalPosition.Height);
+
+            Assert.True(env.AppliedPositions.ContainsKey(9301));
+            Assert.Equal(new WindowRect(1699, 0, 3420, 1407), env.AppliedPositions[9301]);
+        }
+
+        [Fact]
+        public void Restore_UltrawideScreenCoordinates_ClampsWithinSmallerMonitorWorkArea()
+        {
+            var env = new FakeWindowingEnvironment();
+            env.WorkArea = new WindowRect(0, 0, 1920, 1040);
+
+            env.Windows[9401] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 9401,
+                ProcessName = "slack",
+                Title = "Slack",
+                FrameMargins = new WindowFrameMargins(7, 0, 7, 7),
+                Placement = new WindowPlacement
+                {
+                    ShowCmd = 1,
+                    NormalPosition = new WindowRect(50, 50, 800, 600)
+                }
+            };
+
+            var profile = new SessionProfile
+            {
+                ProfileName = "test-clamp",
+                Windows = new[]
+                {
+                    new WindowRecord
+                    {
+                        TargetId = 1,
+                        Hwnd = 9401,
+                        ProcessName = "slack",
+                        WindowTitle = "Slack",
+                        X = 3000,
+                        Y = 100,
+                        Width = 2400,
+                        Height = 1200,
+                        ShowCmd = 1
+                    }
+                }
+            };
+
+            var restorer = new WindowRestorer(env);
+            restorer.Restore(profile);
+
+            Assert.True(env.AppliedPlacements.ContainsKey(9401));
+            Assert.Equal(new WindowRect(0, 0, 1920, 1040), env.AppliedPlacements[9401].NormalPosition);
+
+            Assert.True(env.AppliedPositions.ContainsKey(9401));
+            Assert.Equal(new WindowRect(-7, 0, 1927, 1047), env.AppliedPositions[9401]);
+        }
+
+        [Fact]
+        public void Restore_VerboseFlag_OutputsDiagnosticTraces()
+        {
+            var env = new FakeWindowingEnvironment();
+            env.Windows[9501] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 9501,
+                ProcessName = "wpfapp",
+                Title = "WPF Application",
+                ClassName = "WpfWindowClass",
+                FrameMargins = new WindowFrameMargins(7, 0, 7, 7),
+                Placement = new WindowPlacement
+                {
+                    ShowCmd = 1,
+                    NormalPosition = new WindowRect(50, 50, 850, 650)
+                }
+            };
+
+            var profile = new SessionProfile
+            {
+                ProfileName = "test-verbose",
+                Windows = new[]
+                {
+                    new WindowRecord
+                    {
+                        TargetId = 1,
+                        Hwnd = 9501,
+                        ProcessName = "wpfapp",
+                        WindowTitle = "WPF Application",
+                        X = 50,
+                        Y = 50,
+                        Width = 800,
+                        Height = 600,
+                        ShowCmd = 1
+                    }
+                }
+            };
+
+            var restorer = new WindowRestorer(env);
+            var originalOut = Console.Out;
+            using var sw = new System.IO.StringWriter();
+            try
+            {
+                Console.SetOut(sw);
+                restorer.Restore(profile, verbose: true);
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+            }
+
+            string output = sw.ToString();
+            Assert.Contains("Match: Pass 1", output);
+            Assert.Contains("WpfWindowClass", output);
+            Assert.Contains("Pre-Restore Bounds:", output);
+            Assert.Contains("Target Clamping:", output);
+            Assert.Contains("DWM Compensation:", output);
         }
     }
 }

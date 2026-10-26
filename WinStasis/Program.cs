@@ -14,7 +14,9 @@ namespace WinStasis
 {
     class Program
     {
-
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
 
         // =====================================================================
         // CLI ENTRY POINT
@@ -22,6 +24,7 @@ namespace WinStasis
         [STAThread] // <-- THIS IS CRITICAL FOR THE VIRTUAL DESKTOP COM LIBRARY
         static void Main(string[] args)
         {
+            SetProcessDpiAwarenessContext((IntPtr)(-4));
             if (args.Length == 0)
             {
                 ShowHelp();
@@ -52,10 +55,10 @@ namespace WinStasis
         {
             Console.WriteLine("🪟 winst - Window State Manager\n");
             Console.WriteLine("Usage:");
-            Console.WriteLine("  winst save <profile> [--force]      Save the current window layout to a profile.");
-            Console.WriteLine("  winst list <profile>                List all windows saved in a profile with their Target IDs.");
-            Console.WriteLine("  winst restore <profile>             Restore all windows in a profile.");
-            Console.WriteLine("  winst restore <profile> --target X  Restore only the window with Target ID 'X'.");
+            Console.WriteLine("  winst save <profile> [--force|-f] [--verbose|-v]      Save the current window layout to a profile.");
+            Console.WriteLine("  winst list <profile>                                  List all windows saved in a profile with their Target IDs.");
+            Console.WriteLine("  winst restore <profile> [--verbose|-v]                Restore all windows in a profile.");
+            Console.WriteLine("  winst restore <profile> [--target|-t X] [--verbose|-v] Restore only the window with Target ID 'X'.");
         }
 
         // =====================================================================
@@ -70,7 +73,8 @@ namespace WinStasis
             }
 
             string profileName = args[1];
-            bool force = args.Length > 2 && (args[2] == "--force" || args[2] == "-f");
+            bool force = args.Skip(2).Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase) || a.Equals("-f", StringComparison.OrdinalIgnoreCase));
+            bool verbose = args.Skip(2).Any(a => a.Equals("--verbose", StringComparison.OrdinalIgnoreCase) || a.Equals("-v", StringComparison.OrdinalIgnoreCase));
 
             ProfileManager.EnsureDirectoryExists();
 
@@ -88,60 +92,14 @@ namespace WinStasis
 
             Console.WriteLine($"Scanning visible windows for profile: {profileName}...");
 
-            var capturedWindows = new List<WindowRecord>();
-            var desktopHelper = new VirtualDesktopHelper();
             var env = new WindowsEnvironmentAdapter();
-            int currentTargetId = 1;
-
-            foreach (long hwndLong in env.GetVisibleWindows())
-            {
-                IntPtr hWnd = (IntPtr)hwndLong;
-                string windowTitle = env.GetWindowTitle(hwndLong).Trim();
-                if (string.IsNullOrEmpty(windowTitle)) continue;
-
-                string processName = env.GetWindowProcessName(hwndLong);
-                if (string.IsNullOrEmpty(processName)) processName = "Unknown";
-
-                if (processName == "TextInputHost" || processName == "ApplicationFrameHost") continue;
-
-                WindowPlacement placement = env.GetWindowPlacement(hwndLong);
-                int x = placement.NormalPosition.Left;
-                int y = placement.NormalPosition.Top;
-                int width = placement.NormalPosition.Width;
-                int height = placement.NormalPosition.Height;
-
-                if (width <= 0 || height <= 0) continue;
-
-                Guid desktopId = desktopHelper.GetWindowDesktopId(hWnd);
-                bool isPinned = desktopHelper.IsWindowPinned(hWnd);
-
-                capturedWindows.Add(new WindowRecord
-                {
-                    TargetId = currentTargetId++,
-                    Hwnd = hwndLong,
-                    ProcessName = processName,
-                    WindowTitle = windowTitle,
-                    X = x,
-                    Y = y,
-                    Width = width,
-                    Height = height,
-                    ShowCmd = placement.ShowCmd,
-                    DesktopId = desktopId,
-                    IsPinned = isPinned
-                });
-            }
-
-            var profile = new SessionProfile
-            {
-                ProfileName = profileName,
-                CreatedAt = DateTime.Now,
-                Windows = capturedWindows.ToArray()
-            };
+            var capturer = new WindowCapturer(env);
+            SessionProfile profile = capturer.Capture(profileName, verbose);
 
             string json = JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(ProfileManager.GetFilePath(profileName), json);
 
-            Console.WriteLine($"Successfully saved {capturedWindows.Count} windows to profile '{profileName}'.");
+            Console.WriteLine($"Successfully saved {profile.Windows.Length} windows to profile '{profileName}'.");
             Console.WriteLine($"Storage Location: {ProfileManager.GetFilePath(profileName)}");
         }
 
@@ -169,7 +127,7 @@ namespace WinStasis
                 return;
             }
 
-            var desktopHelper = new VirtualDesktopHelper();
+            var env = new WindowsEnvironmentAdapter();
 
             Console.WriteLine($"Profile: {profile.ProfileName} (Saved: {profile.CreatedAt})");
             Console.WriteLine(new string('-', 80));
@@ -184,7 +142,7 @@ namespace WinStasis
                 }
                 else if (win.DesktopId != Guid.Empty)
                 {
-                    int deskNum = desktopHelper.GetDesktopNumber(win.DesktopId);
+                    int deskNum = env.GetDesktopNumber(win.DesktopId);
                     workspaceStr = deskNum > 0 ? $"[WS: Desk {deskNum}]" : $"[WS: {win.DesktopId.ToString().Substring(0, 8)}...]";
                 }
                 else
@@ -212,18 +170,29 @@ namespace WinStasis
                 return;
             }
 
-            // Parse --target argument if provided
+            bool verbose = false;
             int? targetId = null;
-            if (args.Length >= 4 && (args[2] == "--target" || args[2] == "-t"))
+
+            var remainingArgs = args.Skip(2).ToArray();
+            for (int i = 0; i < remainingArgs.Length; i++)
             {
-                if (int.TryParse(args[3], out int parsedTarget))
+                string arg = remainingArgs[i];
+                if (arg.Equals("--verbose", StringComparison.OrdinalIgnoreCase) || arg.Equals("-v", StringComparison.OrdinalIgnoreCase))
                 {
-                    targetId = parsedTarget;
+                    verbose = true;
                 }
-                else
+                else if (arg.Equals("--target", StringComparison.OrdinalIgnoreCase) || arg.Equals("-t", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Error: Invalid target ID. Please provide a valid number.");
-                    return;
+                    if (i + 1 < remainingArgs.Length && int.TryParse(remainingArgs[i + 1], out int parsedTarget))
+                    {
+                        targetId = parsedTarget;
+                        i++;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Error: Invalid target ID. Please provide a valid number.");
+                        return;
+                    }
                 }
             }
 
@@ -238,7 +207,7 @@ namespace WinStasis
 
             var env = new WindowsEnvironmentAdapter();
             var restorer = new WindowRestorer(env);
-            restorer.Restore(profile, targetId);
+            restorer.Restore(profile, targetId, verbose);
         }
     }
 }

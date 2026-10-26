@@ -55,6 +55,10 @@ namespace WinStasis.Adapters
             if (string.IsNullOrEmpty(title))
                 return false;
 
+            string processName = GetWindowProcessName(hwnd);
+            if (processName == "TextInputHost" || processName == "ApplicationFrameHost")
+                return false;
+
             long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
             bool isAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
 
@@ -132,6 +136,10 @@ namespace WinStasis.Adapters
             return windows;
         }
 
+        public Guid GetWindowDesktopId(long hwnd) => _desktopHelper.GetWindowDesktopId((IntPtr)hwnd);
+
+        public int GetDesktopNumber(Guid desktopId) => _desktopHelper.GetDesktopNumber(desktopId);
+
         public bool IsWindowPinned(long hwnd) => _desktopHelper.IsWindowPinned((IntPtr)hwnd);
 
         public void PinWindow(long hwnd) => _desktopHelper.PinWindow((IntPtr)hwnd);
@@ -205,6 +213,83 @@ namespace WinStasis.Adapters
             return SetWindowPlacement((IntPtr)hwnd, ref nativePlacement);
         }
 
+        public WindowRect GetWindowBounds(long hwnd)
+        {
+            if (GetWindowRect((IntPtr)hwnd, out NativeRect rect))
+            {
+                return new WindowRect(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            }
+            return new WindowRect(0, 0, 0, 0);
+        }
+
+        public WindowRect GetVisibleWindowBounds(long hwnd)
+        {
+            int hr = DwmGetWindowAttribute((IntPtr)hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out NativeRect dwmRect, Marshal.SizeOf<NativeRect>());
+            if (hr == 0)
+            {
+                int width = dwmRect.Right - dwmRect.Left;
+                int height = dwmRect.Bottom - dwmRect.Top;
+                if (width > 0 && height > 0)
+                {
+                    return new WindowRect(dwmRect.Left, dwmRect.Top, dwmRect.Right, dwmRect.Bottom);
+                }
+            }
+            return GetWindowBounds(hwnd);
+        }
+
+        public WindowFrameMargins GetFrameMargins(long hwnd)
+        {
+            WindowRect winRect = GetWindowBounds(hwnd);
+            WindowRect dwmRect = GetVisibleWindowBounds(hwnd);
+
+            return new WindowFrameMargins(
+                left: dwmRect.Left - winRect.Left,
+                top: dwmRect.Top - winRect.Top,
+                right: winRect.Right - dwmRect.Right,
+                bottom: winRect.Bottom - dwmRect.Bottom
+            );
+        }
+
+        public bool SetWindowPosition(long hwnd, WindowRect win32Rect)
+        {
+            return SetWindowPos(
+                (IntPtr)hwnd,
+                IntPtr.Zero,
+                win32Rect.Left,
+                win32Rect.Top,
+                win32Rect.Width,
+                win32Rect.Height,
+                SWP_NOZORDER | SWP_NOACTIVATE
+            );
+        }
+
+        public WindowDiagnostics GetWindowDiagnostics(long hwnd)
+        {
+            IntPtr hWnd = (IntPtr)hwnd;
+            StringBuilder classBuilder = new(256);
+            GetClassName(hWnd, classBuilder, 256);
+            string className = classBuilder.ToString();
+
+            long style = GetWindowLongPtr(hWnd, GWL_STYLE).ToInt64();
+            long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+
+            WindowRect rawRect = GetWindowBounds(hwnd);
+            WindowRect visibleRect = GetVisibleWindowBounds(hwnd);
+            WindowPlacement placement = GetWindowPlacement(hwnd);
+            WindowFrameMargins margins = GetFrameMargins(hwnd);
+
+            return new WindowDiagnostics
+            {
+                ClassName = className,
+                Style = style,
+                ExStyle = exStyle,
+                RawWin32Rect = rawRect,
+                VisibleDwmRect = visibleRect,
+                NormalPositionRect = placement.NormalPosition,
+                FrameMargins = margins
+            };
+        }
+
         // =====================================================================
         // WIN32 INTEROP (PRIVATE TO ADAPTER)
         // =====================================================================
@@ -236,6 +321,21 @@ namespace WinStasis.Adapters
 
         [DllImport("dwmapi.dll")]
         private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out NativeRect pvAttribute, int cbAttribute);
+
+        private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="WinStasis.Tests/WinStasis.Tests.csproj" />
+  <Project Path="WinStasis/WinStasis.csproj" />
+</Solution>
