@@ -1,0 +1,24 @@
+name: CI & Safety Hygiene
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  safety-and-hygiene:
+    name: Security, Secrets & Path Hygiene
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run Repository Safety Checker
+        run: python scripts/check_repo_safety.py
