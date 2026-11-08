@@ -14,6 +14,11 @@ namespace WinStasis.Interfaces
         bool IsAppWindow(long hwnd);
         IEnumerable<long> GetVisibleWindows();
 
+        // Identity and Container Introspection
+        long GetWindowInstanceToken(long hwnd);
+        void SetWindowInstanceToken(long hwnd, long token);
+        string[] GetWindowTabs(long hwnd);
+
         // Virtual Desktop & Pinning
         Guid GetWindowDesktopId(long hwnd);
         int GetDesktopNumber(Guid desktopId);

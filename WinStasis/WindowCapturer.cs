@@ -76,10 +76,23 @@ namespace WinStasis
                 bool isPinned = _env.IsWindowPinned(hwnd);
                 int targetId = currentTargetId++;
 
+                long token = _env.GetWindowInstanceToken(hwnd);
+                if (token == 0)
+                {
+                    token = Random.Shared.NextInt64(1, long.MaxValue);
+                    _env.SetWindowInstanceToken(hwnd, token);
+                }
+
+                string[] tabs = _env.GetWindowTabs(hwnd);
+
                 if (verbose)
                 {
                     WindowDiagnostics diag = _env.GetWindowDiagnostics(hwnd);
-                    Console.WriteLine($"  [Capture] [{targetId:D2}] {processName}.exe (HWND: 0x{hwnd:X}, Class: \"{diag.ClassName}\", ShowCmd: {placement.ShowCmd}) - \"{windowTitle}\"");
+                    Console.WriteLine($"  [Capture] [{targetId:D2}] {processName}.exe (HWND: 0x{hwnd:X}, Token: 0x{token:X}, Tabs: {tabs.Length}, Class: \"{diag.ClassName}\", ShowCmd: {placement.ShowCmd}) - \"{windowTitle}\"");
+                    if (tabs.Length > 0)
+                    {
+                        Console.WriteLine($"    Tabs: [{string.Join(", ", tabs.Select(t => $"\"{t}\""))}]");
+                    }
                     Console.WriteLine($"    Styles: Style=0x{diag.Style:X8}, ExStyle=0x{diag.ExStyle:X8}");
                     Console.WriteLine($"    Bounds: Win32=({diag.RawWin32Rect.Left},{diag.RawWin32Rect.Top} {diag.RawWin32Rect.Width}x{diag.RawWin32Rect.Height}) | DWM=({diag.VisibleDwmRect.Left},{diag.VisibleDwmRect.Top} {diag.VisibleDwmRect.Width}x{diag.VisibleDwmRect.Height}) | NormalPos=({diag.NormalPositionRect.Left},{diag.NormalPositionRect.Top} {diag.NormalPositionRect.Width}x{diag.NormalPositionRect.Height})");
                     Console.WriteLine($"    Margins: L={diag.FrameMargins.Left}, T={diag.FrameMargins.Top}, R={diag.FrameMargins.Right}, B={diag.FrameMargins.Bottom} -> Saved=({x},{y} {width}x{height})");
@@ -89,8 +102,10 @@ namespace WinStasis
                 {
                     TargetId = targetId,
                     Hwnd = hwnd,
+                    InstanceToken = token,
                     ProcessName = processName,
                     WindowTitle = windowTitle,
+                    Tabs = tabs,
                     X = x,
                     Y = y,
                     Width = width,

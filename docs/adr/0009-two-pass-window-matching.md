@@ -1,6 +1,6 @@
 # 9. Two-Pass Window Matching with Exclusive Handle Allocation
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0013](0013-multi-signal-bipartite-window-matching.md)
 
 **Supersedes:** [ADR-0001](0001-hybrid-window-matching.md)
 

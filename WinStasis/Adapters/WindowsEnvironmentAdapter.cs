@@ -11,6 +11,7 @@ namespace WinStasis.Adapters
     public class WindowsEnvironmentAdapter : IWindowingEnvironment
     {
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+        private const string InstanceTokenPropName = "WinStasis.InstanceToken";
         private readonly VirtualDesktopHelper _desktopHelper;
 
         public WindowsEnvironmentAdapter()
@@ -134,6 +135,24 @@ namespace WinStasis.Adapters
             }
             EnumWindows(EnumCallback, IntPtr.Zero);
             return windows;
+        }
+
+        public long GetWindowInstanceToken(long hwnd)
+        {
+            if (hwnd == 0 || !IsWindow((IntPtr)hwnd)) return 0;
+            return GetPropW((IntPtr)hwnd, InstanceTokenPropName).ToInt64();
+        }
+
+        public void SetWindowInstanceToken(long hwnd, long token)
+        {
+            if (hwnd == 0 || token == 0 || !IsWindow((IntPtr)hwnd)) return;
+            _ = SetPropW((IntPtr)hwnd, InstanceTokenPropName, (IntPtr)token);
+        }
+
+        public string[] GetWindowTabs(long hwnd)
+        {
+            if (hwnd == 0 || !IsWindow((IntPtr)hwnd)) return Array.Empty<string>();
+            return UiAutomationTabReader.ReadWindowTabs((IntPtr)hwnd);
         }
 
         public Guid GetWindowDesktopId(long hwnd) => _desktopHelper.GetWindowDesktopId((IntPtr)hwnd);
@@ -295,6 +314,13 @@ namespace WinStasis.Adapters
         // =====================================================================
 
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr GetPropW(IntPtr hWnd, string lpString);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetPropW(IntPtr hWnd, string lpString, IntPtr hData);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
         private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);

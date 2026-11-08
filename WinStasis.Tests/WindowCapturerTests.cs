@@ -171,5 +171,49 @@ namespace WinStasis.Tests
 
             Assert.Empty(profile.Windows);
         }
+
+        [Fact]
+        public void Capture_PopulatesInstanceTokenAndTabs_AndStampsLiveWindow()
+        {
+            var env = new FakeWindowingEnvironment();
+            env.Windows[601] = new FakeWindowingEnvironment.WindowState
+            {
+                Hwnd = 601,
+                Title = "Browser Window - Waterfox",
+                ProcessName = "waterfox",
+                Tabs = new[] { "Tab 1", "Tab 2" },
+                Placement = new WindowPlacement
+                {
+                    ShowCmd = 1,
+                    NormalPosition = new WindowRect(0, 0, 1000, 800)
+                },
+                VisibleBounds = new WindowRect(0, 0, 1000, 800)
+            };
+
+            var capturer = new WindowCapturer(env);
+            var originalOut = Console.Out;
+            using var sw = new System.IO.StringWriter();
+            SessionProfile profile;
+            try
+            {
+                Console.SetOut(sw);
+                profile = capturer.Capture("token-test", verbose: true);
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+            }
+
+            Assert.Single(profile.Windows);
+            var win = profile.Windows[0];
+
+            Assert.NotEqual(0L, win.InstanceToken);
+            Assert.Equal(win.InstanceToken, env.GetWindowInstanceToken(601));
+            Assert.Equal(new[] { "Tab 1", "Tab 2" }, win.Tabs);
+
+            string output = sw.ToString();
+            Assert.Contains($"Token: 0x{win.InstanceToken:X}", output);
+            Assert.Contains("Tabs: 2", output);
+        }
     }
 }

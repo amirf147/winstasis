@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using WinStasis.Interfaces;
+using WinStasis.Matching;
 using WinStasis.Models;
 
 namespace WinStasis
@@ -32,85 +33,10 @@ namespace WinStasis
 
             Console.WriteLine($"Restoring {(targetId.HasValue ? "target " + targetId : "all windows")} from profile '{profile.ProfileName}'...\n");
 
-            var visibleWindows = _env.GetVisibleWindows().ToList();
-            var claimedHwnds = new HashSet<long>();
-            var windowAssignments = new Dictionary<int, long>(); // TargetId -> hWnd
-            var matchReasons = new Dictionary<int, string>(); // TargetId -> Reason
-
-            // =====================================================================
-            // PASS 1: FAST-PATH HWND & EXACT TITLE MATCH
-            // =====================================================================
-            foreach (var win in windowsToRestore)
-            {
-                long savedHwnd = win.Hwnd;
-
-                // 1. Fast Path: Check if saved HWND is still valid and an active application window
-                if (savedHwnd != 0 && !claimedHwnds.Contains(savedHwnd) && 
-                    _env.IsWindowAlive(savedHwnd) && _env.IsWindowVisible(savedHwnd) && _env.IsAppWindow(savedHwnd))
-                {
-                    if (_env.GetWindowProcessName(savedHwnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        string liveTitle = _env.GetWindowTitle(savedHwnd);
-                        if (string.IsNullOrEmpty(win.WindowTitle) || !string.IsNullOrWhiteSpace(liveTitle))
-                        {
-                            claimedHwnds.Add(savedHwnd);
-                            windowAssignments[win.TargetId] = savedHwnd;
-                            matchReasons[win.TargetId] = "Pass 1 (Fast-Path HWND)";
-                            continue;
-                        }
-                    }
-                }
-
-                // 2. Exact Match on Process Name + Window Title
-                foreach (long hWnd in visibleWindows)
-                {
-                    if (!claimedHwnds.Contains(hWnd))
-                    {
-                        if (_env.GetWindowProcessName(hWnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase) &&
-                            _env.GetWindowTitle(hWnd) == win.WindowTitle)
-                        {
-                            claimedHwnds.Add(hWnd);
-                            windowAssignments[win.TargetId] = hWnd;
-                            matchReasons[win.TargetId] = "Pass 1 (Exact Process + Title)";
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // =====================================================================
-            // PASS 2: PROCESS FALLBACK (Title changed across reboots/updates)
-            // =====================================================================
-            foreach (var win in windowsToRestore)
-            {
-                if (windowAssignments.ContainsKey(win.TargetId))
-                    continue;
-
-                foreach (long hWnd in visibleWindows)
-                {
-                    if (!claimedHwnds.Contains(hWnd))
-                    {
-                        // SAFETY GUARDS:
-                        // 1. Require a non-empty title so we don't accidentally
-                        // match the Windows Taskbar (Shell_TrayWnd) or hidden helper windows.
-                        string liveTitle = _env.GetWindowTitle(hWnd);
-                        if (string.IsNullOrWhiteSpace(liveTitle))
-                            continue;
-
-                        // 2. Ensure it is a valid top-level application window
-                        if (!_env.IsAppWindow(hWnd))
-                            continue;
-
-                        if (_env.GetWindowProcessName(hWnd).Equals(win.ProcessName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            claimedHwnds.Add(hWnd);
-                            windowAssignments[win.TargetId] = hWnd;
-                            matchReasons[win.TargetId] = "Pass 2 (Process Fallback)";
-                            break;
-                        }
-                    }
-                }
-            }
+            var matcher = new WindowMatcher(_env);
+            WindowMatchResult matchResult = matcher.Match(windowsToRestore);
+            var windowAssignments = matchResult.Assignments;
+            var matchReasons = matchResult.MatchReasons;
 
             // =====================================================================
             // EXECUTE WINDOW PLACEMENT & WORKSPACE ASSIGNMENT
@@ -187,6 +113,11 @@ namespace WinStasis
 
                 // Step 1: SetWindowPlacement
                 bool result = _env.SetWindowPlacement(hWnd, placement);
+
+                if (result && win.InstanceToken != 0)
+                {
+                    _env.SetWindowInstanceToken(hWnd, win.InstanceToken);
+                }
 
                 WindowFrameMargins margins = default;
                 WindowRect compensatedWin32Rect = default;

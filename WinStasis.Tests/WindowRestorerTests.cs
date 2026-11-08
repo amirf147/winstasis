@@ -13,6 +13,8 @@ namespace WinStasis.Tests
         public class WindowState
         {
             public long Hwnd { get; set; }
+            public long InstanceToken { get; set; }
+            public string[] Tabs { get; set; } = Array.Empty<string>();
             public bool IsAlive { get; set; } = true;
             public bool IsVisible { get; set; } = true;
             public bool IsApp { get; set; } = true;
@@ -52,6 +54,17 @@ namespace WinStasis.Tests
 
         public IEnumerable<long> GetVisibleWindows() =>
             Windows.Values.Where(w => w.IsVisible && w.IsApp).Select(w => w.Hwnd);
+
+        public long GetWindowInstanceToken(long hwnd) =>
+            Windows.TryGetValue(hwnd, out var w) ? w.InstanceToken : 0;
+
+        public void SetWindowInstanceToken(long hwnd, long token)
+        {
+            if (Windows.TryGetValue(hwnd, out var w)) w.InstanceToken = token;
+        }
+
+        public string[] GetWindowTabs(long hwnd) =>
+            Windows.TryGetValue(hwnd, out var w) ? w.Tabs : Array.Empty<string>();
 
         public Guid GetWindowDesktopId(long hwnd) =>
             Windows.TryGetValue(hwnd, out var w) ? w.DesktopId : Guid.Empty;

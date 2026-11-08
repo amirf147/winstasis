@@ -21,8 +21,10 @@ namespace WinStasis.Models
         // 1. IDENTIFIERS
         public int TargetId { get; set; }               // Stable ID for CLI targeting (e.g., --target 1)
         public long Hwnd { get; set; }                  // Volatile OS handle (saved as long because IntPtr isn't easily JSON serializable)
+        public long InstanceToken { get; set; }         // 64-bit token stamped onto live HWND via SetPropW
         public string ProcessName { get; set; } = "";   // Used for Fallback Hybrid Matching
         public string WindowTitle { get; set; } = "";   // Used for Fallback Hybrid Matching
+        public string[] Tabs { get; set; } = Array.Empty<string>(); // Shallow UIA TabItem captions
 
         // 2. GEOMETRY
         public int X { get; set; }
